@@ -12,3 +12,15 @@ logs/
 .env
 .DS_Store
 node_modules/
+
+# Excel files
+*.xlsx
+*.xls
+
+# Documentation with sensitive info
+CLAUDE.md
+フォーム営業システム要件定義書.md
+
+# Python cache files
+__pycache__/form_sales_system.cpython-310.pyc
+__pycache__/form_sales_system.cpython-312.pyc
