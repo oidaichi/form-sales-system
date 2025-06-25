@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フォーム営業システム</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .container { background: #f5f5f5; padding: 20px; border-radius: 10px; }
+        .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; }
+        .progress-bar { width: 100%; height: 20px; background: #ddd; border-radius: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #4CAF50; transition: width 0.3s; }
+        .logs { background: #000; color: #0f0; padding: 20px; height: 300px; overflow-y: scroll; font-family: monospace; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .company-card { border: 1px solid #e0e0e0; margin: 10px 0; padding: 15px; border-radius: 8px; background: #fafafa; }
+        .company-name { font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 8px; }
+        .company-url { color: #3498db; margin-bottom: 8px; word-break: break-all; }
+        .company-message { background: #e8f4fd; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 14px; line-height: 1.4; }
+        .contact-info { font-size: 12px; color: #666; margin-top: 5px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 フォーム営業システム</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
+            <p>📊 Excelファイルをここにドロップまたはクリックして選択</p>
+            <button class="btn-primary" onclick="document.getElementById('fileInput').click()">ファイル選択</button>
+        </div>
+        
+        <div id="fileInfo" style="display: none;">
+            <p>📄 ファイル: <span id="fileName"></span></p>
+            <p>📊 シート名: <span id="sheetName"></span></p>
+            <p>🏢 企業数: <span id="companyCount"></span></p>
+            
+            <div id="companyPreview" style="margin: 20px 0;">
+                <h3>📋 企業プレビュー（最初の10社）</h3>
+                <div id="previewContainer" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: white; border-radius: 5px;">
+                    <!-- 企業データがここに表示される -->
+                </div>
+                <div style="margin: 10px 0;">
+                    <label>
+                        <input type="checkbox" id="showMessage" checked onchange="toggleMessageDisplay()"> 
+                        💬 送信メッセージを表示
+                    </label>
+                </div>
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <h4>🚀 処理方法を選択</h4>
+                <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <button class="btn-success" onclick="startTabProcessing()" style="flex: 1; min-width: 200px;">
+                        🖥️ タブベース処理（推奨）
+                        <br><small>GUI Chromeで各企業をタブで開き、送信失敗時は人間が手動完了</small>
+                    </button>
+                    <button class="btn-secondary" onclick="startProcessing()" style="flex: 1; min-width: 200px;">
+                        🤖 旧システム（完全自動）
+                        <br><small>従来の完全自動処理（埋め込みブラウザ表示）</small>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="progressArea" style="display: none;">
+            <h3>📈 処理状況</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+            </div>
+            <p id="statusMessage">待機中...</p>
+            <button class="btn-danger" onclick="stopProcessing()">⏹️ 停止</button>
+            
+            <!-- ブラウザ画面表示エリア -->
+            <div id="browserDisplay" style="margin-top: 20px;">
+                <h4>🌐 ブラウザ操作画面</h4>
+                <div style="border: 2px solid #ddd; border-radius: 8px; background: #f9f9f9; padding: 10px;">
+                    <div style="margin-bottom: 10px;">
+                        <button class="btn-primary" onclick="toggleBrowserView()" id="browserToggle">🖼️ スクリーンショット表示</button>
+                        <button class="btn-secondary" onclick="openBrowserWindow()" id="browserWindow">🖼️ 新しいウィンドウで開く</button>
+                        <span id="browserInfo" style="margin-left: 15px; font-size: 12px; color: #666;">
+                            待機中...
+                        </span>
+                    </div>
+                    
+                    <!-- リアルタイム埋め込み表示 -->
+                    <div id="browserEmbedContainer" style="display: block;">
+                        <iframe id="browserEmbed" src="/browser-embed" style="width: 100%; height: 500px; border: 1px solid #ddd; border-radius: 4px;"></iframe>
+                    </div>
+                    
+                    <!-- スクリーンショット表示（フォールバック） -->
+                    <div id="browserScreenshot" style="display: none; text-align: center; min-height: 300px; background: #fff; border: 1px solid #eee; border-radius: 4px; overflow: hidden;">
+                        <p style="margin-top: 130px; color: #999;">ブラウザ操作が開始されると画面が表示されます</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div>
+            <h3>📋 ログ</h3>
+            <div class="logs" id="logs"></div>
+            <button class="btn-primary" onclick="refreshLogs()">🔄 更新</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentFile = null;
+        
+        document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+        
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentFile = data.filename;
+                    document.getElementById('fileName').textContent = data.filename;
+                    document.getElementById('sheetName').textContent = data.sheet_name || 'Sheet1';
+                    document.getElementById('companyCount').textContent = data.companies;
+                    
+                    // デバッグ情報をコンソールに出力
+                    console.log('Excel解析結果:', data);
+                    console.log('利用可能シート:', data.available_sheets);
+                    console.log('使用シート:', data.sheet_name);
+                    console.log('企業数:', data.companies);
+                    console.log('プレビューデータ:', data.preview);
+                    
+                    // 企業プレビューを表示
+                    displayCompanyPreview(data.preview || []);
+                    
+                    document.getElementById('fileInfo').style.display = 'block';
+                } else {
+                    alert('エラー: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('アップロードエラー: ' + error);
+            });
+        }
+        
+        function startProcessing() {
+            if (!currentFile) return;
+            
+            fetch('/api/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({filename: currentFile})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('progressArea').style.display = 'block';
+                } else {
+                    alert('エラー: ' + data.error);
+                }
+            });
+        }
+        
+        function startTabProcessing() {
+            if (!currentFile) return;
+            
+            if (!confirm('タブベース処理を開始します。\n\nGUI Chromeが起動し、各企業のURLをタブで開きます。\n自動処理に失敗した企業のタブは残るので、手動で入力・送信してください。\n\n開始しますか？')) {
+                return;
+            }
+            
+            fetch('/api/start-tabs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({filename: currentFile})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('progressArea').style.display = 'block';
+                    // タブベース処理の場合は埋め込みブラウザ表示を隠す
+                    const browserDisplay = document.getElementById('browserDisplay');
+                    if (browserDisplay) {
+                        browserDisplay.style.display = 'none';
+                    }
+                } else {
+                    alert('エラー: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('タブベース処理エラー: ' + error);
+            });
+        }
+        
+        function stopProcessing() {
+            fetch('/api/stop', {method: 'POST'})
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            });
+        }
+        
+        function refreshLogs() {
+            fetch('/api/logs')
+            .then(response => response.json())
+            .then(data => {
+                const logsDiv = document.getElementById('logs');
+                logsDiv.innerHTML = data.logs.map(log => 
+                    `[${log.timestamp}] ${log.level}: ${log.message}`
+                ).join('\n');
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+            });
+        }
+        
+        function displayCompanyPreview(companies) {
+            const container = document.getElementById('previewContainer');
+            
+            if (companies.length === 0) {
+                container.innerHTML = '<p>プレビューデータがありません</p>';
+                return;
+            }
+            
+            const html = companies.map((company, index) => `
+                <div class="company-card">
+                    <div class="company-name">🏢 ${company.company_name || '企業名不明'}</div>
+                    <div class="company-url">🌐 <a href="${company.url}" target="_blank">${company.url || 'URL不明'}</a></div>
+                    ${company.contact_info ? `<div class="contact-info">📧 ${company.contact_info}</div>` : ''}
+                    <div class="company-message ${document.getElementById('showMessage').checked ? '' : 'hidden'}">
+                        💬 <strong>送信メッセージ:</strong><br>
+                        ${(company.message || '').replace(/\n/g, '<br>') || 'メッセージなし'}
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+        }
+        
+        function toggleMessageDisplay() {
+            const showMessage = document.getElementById('showMessage').checked;
+            const messages = document.querySelectorAll('.company-message');
+            
+            messages.forEach(msg => {
+                if (showMessage) {
+                    msg.classList.remove('hidden');
+                } else {
+                    msg.classList.add('hidden');
+                }
+            });
+        }
+        
+        socket.on('status_update', function(data) {
+            document.getElementById('progressFill').style.width = data.progress + '%';
+            document.getElementById('statusMessage').textContent = data.message;
+        });
+        
+        socket.on('browser_screenshot', function(data) {
+            console.log('ブラウザスクリーンショット受信:', data);
+            
+            // ブラウザ情報を更新
+            const browserInfo = document.getElementById('browserInfo');
+            browserInfo.innerHTML = `
+                📍 <strong>${data.step}</strong> | 
+                🌐 <a href="${data.url}" target="_blank">${data.url}</a> | 
+                🕐 ${new Date(data.timestamp).toLocaleTimeString()}
+            `;
+            
+            // スクリーンショットを表示
+            const screenshotDiv = document.getElementById('browserScreenshot');
+            screenshotDiv.innerHTML = `
+                <img src="data:image/png;base64,${data.screenshot}" 
+                     style="max-width: 100%; height: auto; border-radius: 4px;" 
+                     alt="ブラウザスクリーンショット">
+            `;
+            
+            // 埋め込みブラウザのiframeを更新
+            const iframe = document.getElementById('browserEmbed');
+            if (iframe) {
+                iframe.contentWindow.postMessage({
+                    type: 'refresh_connection'
+                }, '*');
+            }
+        });
+        
+        function toggleBrowserView() {
+            const embedContainer = document.getElementById('browserEmbedContainer');
+            const screenshotContainer = document.getElementById('browserScreenshot');
+            const toggleButton = document.getElementById('browserToggle');
+            
+            if (embedContainer.style.display === 'none') {
+                // 埋め込み表示に切り替え
+                embedContainer.style.display = 'block';
+                screenshotContainer.style.display = 'none';
+                toggleButton.textContent = '🖼️ スクリーンショット表示';
+                
+                // iframe を更新
+                const iframe = document.getElementById('browserEmbed');
+                iframe.src = iframe.src;
+            } else {
+                // スクリーンショット表示に切り替え
+                embedContainer.style.display = 'none';
+                screenshotContainer.style.display = 'block';
+                toggleButton.textContent = '📺 リアルタイム埋め込み表示';
+            }
+        }
+        
+        function openBrowserWindow() {
+            window.open('/browser-embed', 'BrowserEmbed', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+        }
+        
+        // 初回ログ読み込み
+        refreshLogs();
+        setInterval(refreshLogs, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ブラウザ埋め込み表示</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        .browser-container { width: 100%; height: 100vh; display: flex; flex-direction: column; }
+        .browser-header { background: #f0f0f0; padding: 10px; border-bottom: 1px solid #ddd; }
+        .browser-frame { flex: 1; width: 100%; border: none; }
+        .status { font-size: 12px; color: #666; }
+        .controls { margin-left: 10px; }
+        .btn { padding: 5px 10px; margin: 0 5px; border: none; border-radius: 3px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+    </style>
+</head>
+<body>
+    <div class="browser-container">
+        <div class="browser-header">
+            <span class="status" id="status">接続中...</span>
+            <div class="controls">
+                <button class="btn btn-primary" onclick="connectToCrawler()">📄 フォーム検索ブラウザ</button>
+                <button class="btn btn-secondary" onclick="connectToFiller()">✏️ フォーム入力ブラウザ</button>
+                <button class="btn btn-secondary" onclick="refreshFrame()">🔄 更新</button>
+                <select id="tabSelector" onchange="switchTab()" style="margin-left: 10px;">
+                    <option value="">タブを選択...</option>
+                </select>
+            </div>
+        </div>
+        <iframe id="browserFrame" class="browser-frame" src="about:blank"></iframe>
+    </div>
+
+    <script>
+        let currentCdpUrl = '';
+        let availableTabs = [];
+
+        let cdpInfo = null;
+        
+        // CDP接続情報を取得
+        fetch('/api/cdp-info')
+            .then(response => response.json())
+            .then(data => {
+                console.log('CDP情報:', data);
+                cdpInfo = data;
+                // デフォルトでフォーム入力ブラウザに接続
+                connectToFiller();
+            })
+            .catch(error => {
+                console.error('CDP情報取得エラー:', error);
+                updateStatus('❌ CDP情報を取得できません');
+            });
+
+        function connectToCrawler() {
+            if (cdpInfo && cdpInfo.crawler_cdp) {
+                currentCdpUrl = cdpInfo.crawler_cdp;
+                updateStatus('フォーム検索ブラウザに接続中...');
+                loadBrowserTabs();
+            } else {
+                currentCdpUrl = 'http://localhost:9223';
+                updateStatus('フォーム検索ブラウザに接続中...(フォールバック)');
+                loadBrowserTabs();
+            }
+        }
+
+        function connectToFiller() {
+            if (cdpInfo && cdpInfo.filler_cdp) {
+                currentCdpUrl = cdpInfo.filler_cdp;
+                updateStatus('フォーム入力ブラウザに接続中...');
+                loadBrowserTabs();
+            } else {
+                currentCdpUrl = 'http://localhost:9222';
+                updateStatus('フォーム入力ブラウザに接続中...(フォールバック)');
+                loadBrowserTabs();
+            }
+        }
+
+        function loadBrowserTabs() {
+            if (!currentCdpUrl) return;
+
+            fetch(`${currentCdpUrl}/json`)
+                .then(response => response.json())
+                .then(tabs => {
+                    availableTabs = tabs;
+                    updateTabSelector(tabs);
+                    
+                    // 最初のタブに自動接続
+                    if (tabs.length > 0) {
+                        const firstTab = tabs[0];
+                        loadTabContent(firstTab);
+                    }
+                })
+                .catch(error => {
+                    console.error('CDP接続エラー:', error);
+                    updateStatus('❌ ブラウザに接続できません');
+                });
+        }
+
+        function updateTabSelector(tabs) {
+            const selector = document.getElementById('tabSelector');
+            selector.innerHTML = '<option value="">タブを選択...</option>';
+            
+            tabs.forEach((tab, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${tab.title || tab.url || 'タブ' + (index + 1)}`;
+                selector.appendChild(option);
+            });
+        }
+
+        function switchTab() {
+            const selector = document.getElementById('tabSelector');
+            const selectedIndex = selector.value;
+            
+            if (selectedIndex !== '' && availableTabs[selectedIndex]) {
+                loadTabContent(availableTabs[selectedIndex]);
+            }
+        }
+
+        function loadTabContent(tab) {
+            const frame = document.getElementById('browserFrame');
+            
+            // 直接ページURLを表示（安全な場合）
+            if (tab.url && (tab.url.startsWith('https://') || tab.url.startsWith('http://'))) {
+                frame.src = tab.url;
+                updateStatus(`✅ 接続済み: ${tab.title || tab.url}`);
+            } else {
+                // Chrome DevTools Protocol でページコンテンツを取得
+                const devtoolsUrl = `${currentCdpUrl}/devtools/inspector.html?ws=${currentCdpUrl.replace('http://', '')}/devtools/page/${tab.id}`;
+                frame.src = devtoolsUrl;
+                updateStatus(`✅ DevTools接続: ${tab.title || tab.url}`);
+            }
+        }
+
+        function refreshFrame() {
+            loadBrowserTabs();
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        // アクティブなCDPポートを検出
+        async function findActiveCdpPorts() {
+            const ports = [9222, 9223, 9224, 9225]; // 拡張された範囲
+            const activePorts = [];
+            
+            for (const port of ports) {
+                try {
+                    const response = await fetch(`http://localhost:${port}/json`);
+                    if (response.ok) {
+                        const tabs = await response.json();
+                        if (tabs.length > 0) {
+                            activePorts.push({
+                                port: port,
+                                url: `http://localhost:${port}`,
+                                tabs: tabs.length
+                            });
+                        }
+                    }
+                } catch (error) {
+                    // ポートが利用できない場合は無視
+                }
+            }
+            
+            return activePorts;
+        }
+
+        // 定期的にCDP情報とタブ情報を更新
+        setInterval(async () => {
+            try {
+                // アクティブなCDPポートを検出
+                const activePorts = await findActiveCdpPorts();
+                
+                if (activePorts.length > 0) {
+                    // 最新のアクティブポートに接続
+                    const latestPort = activePorts[activePorts.length - 1];
+                    if (currentCdpUrl !== latestPort.url) {
+                        console.log(`新しいアクティブブラウザを検出: ポート${latestPort.port} (${latestPort.tabs}タブ)`);
+                        currentCdpUrl = latestPort.url;
+                        updateStatus(`アクティブブラウザに接続中... (ポート${latestPort.port})`);
+                        loadBrowserTabs();
+                    }
+                }
+                
+                // 既存のCDP情報も更新
+                const response = await fetch('/api/cdp-info');
+                const data = await response.json();
+                if (data && JSON.stringify(data) !== JSON.stringify(cdpInfo)) {
+                    console.log('CDP情報が更新されました:', data);
+                    cdpInfo = data;
+                }
+            } catch (error) {
+                console.error('CDP情報更新エラー:', error);
+            }
+            
+            // タブ情報を更新
+            if (currentCdpUrl) {
+                loadBrowserTabs();
+            }
+        }, 3000);
+    </script>
+</body>
+</html>
