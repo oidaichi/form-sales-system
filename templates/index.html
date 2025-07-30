@@ -64,6 +64,9 @@
             top: 0;
             z-index: 1;
         }
+        .table-responsive {
+            max-height: 400px;
+        }
     </style>
 </head>
 <body>
@@ -136,16 +139,24 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-                document.getElementById('csvFile').addEventListener('change', function() {
-            var fileName = this.files[0] ? this.files[0].name : 'ファイルが選択されていません';
-            document.getElementById('fileName').textContent = fileName;
+        const socket = io();
+        let totalCompanies = 0;
+        let processedCompanies = 0;
+        let successfulCompanies = 0;
+        let allCsvData = []; // Holds all data from the uploaded CSV
+
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.getElementById('csvFile').addEventListener('change', function() {
+                const fileName = this.files[0] ? this.files[0].name : 'ファイルが選択されていません';
+                document.getElementById('fileName').textContent = fileName;
+            });
         });
 
-        socket.on('connect', function() {
+        socket.on('connect', () => {
             console.log('Connected to server');
         });
 
-        socket.on('processing_start', function(data) {
+        socket.on('processing_start', (data) => {
             totalCompanies = data.total_companies;
             processedCompanies = 0;
             successfulCompanies = 0;
@@ -159,129 +170,146 @@
             updateProgressBar(0);
         });
 
-        socket.on('processing_status', function(msg) {
-            console.log(msg.message);
-        });
-
-        socket.on('processing_progress', function(msg) {
+        socket.on('processing_progress', (msg) => {
             processedCompanies = msg.processed_count;
-            document.getElementById('currentProcessingCompany').textContent = msg.current_company;
-            document.getElementById('processedCount').textContent = processedCompanies;
-            document.getElementById('totalProcessed').textContent = totalCompanies;
-            document.getElementById('unprocessedCompanies').textContent = totalCompanies - processedCompanies;
-
             if (msg.status === 'success') {
                 successfulCompanies++;
             }
-            let rate = (successfulCompanies / processedCompanies * 100).toFixed(2);
-            if (isNaN(rate)) rate = '0.00';
+            
+            document.getElementById('currentProcessingCompany').textContent = msg.current_company;
+            document.getElementById('processedCount').textContent = processedCompanies;
+            document.getElementById('unprocessedCompanies').textContent = totalCompanies - processedCompanies;
+            
+            const rate = processedCompanies > 0 ? (successfulCompanies / processedCompanies * 100).toFixed(2) : '0.00';
             document.getElementById('successRate').textContent = rate;
 
             updateProgressBar(msg.progress);
-            renderPreviewTable(msg.current_index); // Re-render preview centered on current index
+            renderPreviewTable(msg.current_index, msg.status);
         });
 
-        socket.on('processing_complete', function(msg) {
+        socket.on('processing_complete', (msg) => {
             document.getElementById('currentProcessingCompany').textContent = msg.message;
             updateProgressBar(100);
             alert(msg.message);
-            renderPreviewTable(-1); // Re-render to show final status
+            renderPreviewTable(-1, 'done'); // Use -1 to signify completion
         });
 
         function updateProgressBar(progress) {
-            var progressBar = document.getElementById('progressBar');
+            const progressBar = document.getElementById('progressBar');
             progressBar.style.width = progress + '%';
             progressBar.setAttribute('aria-valuenow', progress);
             progressBar.textContent = progress + '%';
         }
 
         function uploadCsv() {
-            var fileInput = document.getElementById('csvFile');
-            var file = fileInput.files[0];
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
             if (!file) {
                 alert('CSVファイルを選択してください。');
                 return;
             }
 
-            var formData = new FormData();
+            const formData = new FormData();
             formData.append('file', file);
 
-            // Reset UI state
+            // Reset UI for new file
             document.getElementById('currentProcessingCompany').textContent = '待機中';
             updateProgressBar(0);
+            allCsvData = [];
+            renderPreviewTable(-1); // Clear table
 
             fetch('/upload_csv', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                    allCsvData = [];
-                    totalCompanies = 0;
-                } else {
-                    alert(data.message);
-                    totalCompanies = data.total_companies;
-                    allCsvData = data.processed_csv_data;
-
-                    document.getElementById('totalCompanies').textContent = totalCompanies;
-                    document.getElementById('unprocessedCompanies').textContent = totalCompanies;
-                    document.getElementById('nextBatchCount').textContent = Math.min(30, totalCompanies);
-                    document.getElementById('successRate').textContent = '0.00';
-                    document.getElementById('processedCount').textContent = '0';
-                    document.getElementById('totalProcessed').textContent = totalCompanies;
-
-                    renderPreviewTable(0); // Render initial preview
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || 'Server error') });
                 }
+                return response.json();
+            })
+            .then(data => {
+                alert(data.message);
+                totalCompanies = data.total_companies;
+                allCsvData = data.processed_csv_data;
+
+                // Update stats
+                document.getElementById('totalCompanies').textContent = totalCompanies;
+                document.getElementById('unprocessedCompanies').textContent = totalCompanies;
+                document.getElementById('nextBatchCount').textContent = Math.min(30, totalCompanies);
+                document.getElementById('successRate').textContent = '0.00';
+                document.getElementById('processedCount').textContent = '0';
+                document.getElementById('totalProcessed').textContent = totalCompanies;
+
+                renderPreviewTable(0); // Render initial view
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert('An error occurred during file upload.');
+                alert('アップロードエラー: ' + error.message);
             });
         }
 
-        function renderPreviewTable(currentIndex) {
-            var tableBody = document.getElementById('csvPreviewTableBody');
+        function renderPreviewTable(currentIndex, currentStatus) {
+            const tableBody = document.getElementById('csvPreviewTableBody');
             tableBody.innerHTML = '';
 
             if (!allCsvData || allCsvData.length === 0) {
                 return;
             }
 
+            // Update status of the specific row that was just processed
+            if (currentIndex >= 0 && currentStatus) {
+                if (allCsvData[currentIndex]) {
+                    allCsvData[currentIndex].status = currentStatus;
+                }
+            }
+
             let start = 0;
             let end = allCsvData.length;
 
-            if (currentIndex !== -1) {
+            // If processing, show a window around the current index
+            if (currentIndex >= 0) {
                 start = Math.max(0, currentIndex - 10);
-                end = Math.min(allCsvData.length, currentIndex + 10);
+                end = Math.min(allCsvData.length, currentIndex + 11); // Show 21 rows total
             }
 
             const dataToShow = allCsvData.slice(start, end);
 
             dataToShow.forEach((row, index) => {
                 const originalIndex = start + index;
-                var newRow = tableBody.insertRow();
+                const newRow = tableBody.insertRow();
                 newRow.id = 'row-' + originalIndex;
 
                 newRow.insertCell().textContent = row.company;
                 newRow.insertCell().textContent = row.url;
                 
-                let statusCell = newRow.insertCell();
-                statusCell.textContent = '未処理';
+                const statusCell = newRow.insertCell();
+                const status = row.status || '未処理';
+                
+                if (status === 'success') {
+                    statusCell.textContent = '✅ 成功';
+                } else if (status === 'failed') {
+                    statusCell.textContent = '❌ 失敗';
+                } else {
+                    statusCell.textContent = '未処理';
+                }
 
                 if (originalIndex === currentIndex) {
-                    newRow.style.backgroundColor = '#E3F2FD';
-                    newRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    newRow.style.backgroundColor = '#E3F2FD'; // Highlight current row
+                    if (newRow.scrollIntoView) {
+                       newRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
                 }
             });
         }
 
         function startProcessing() {
             if (!allCsvData || allCsvData.length === 0) {
-                alert('CSVファイルをアップロードしてください。');
+                alert('CSVファイルをアップロードして、処理を開始してください。');
                 return;
             }
+            // Reset status before starting
+            allCsvData.forEach(row => delete row.status);
             socket.emit('start_processing', { 'csv_data': allCsvData });
         }
     </script>
