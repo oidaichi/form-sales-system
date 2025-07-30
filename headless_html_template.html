@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ヘッドレス フォーム営業システム</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #764ba2;
+            background-color: #f8f9ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #28a745;
+            background-color: #f0fff0;
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .upload-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        
+        .upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .upload-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .process-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        
+        .process-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(40, 167, 69, 0.3);
+        }
+        
+        .process-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .stop-btn {
+            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
+        }
+        
+        .stop-btn:hover {
+            box-shadow: 0 8px 20px rgba(220, 53, 69, 0.3);
+        }
+        
+        .progress-container {
+            margin: 20px 0;
+        }
+        
+        .progress-bar {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 20px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .progress-fill {
+            background: linear-gradient(90deg, #28a745, #20c997);
+            height: 100%;
+            width: 0%;
+            transition: width 0.5s ease;
+            border-radius: 10px;
+        }
+        
+        .progress-text {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        
+        .status-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .preview-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .preview-table th,
+        .preview-table td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        .preview-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+        
+        .preview-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        .processed-badge {
+            background: #28a745;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+        }
+        
+        .unprocessed-badge {
+            background: #ffc107;
+            color: #212529;
+            padding: 3px 8px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #495057;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 5px;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .card {
+                padding: 20px;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .process-btn,
+            .upload-btn {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 ヘッドレス フォーム営業システム</h1>
+            <p>CSV企業リストから30件ずつ自動処理 - 完全ヘッドレス実行</p>
+        </div>
+        
+        <!-- ファイルアップロード -->
+        <div class="card">
+            <h2 class="section-title">📁 CSVファイルアップロード</h2>
+            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <input type="file" id="fileInput" class="file-input" accept=".csv" onchange="handleFileSelect(event)">
+                <h3>📊 CSVファイルを選択またはドラッグ&ドロップ</h3>
+                <p>企業リスト (company, url, contact_url, など)</p>
+                <button class="upload-btn">ファイルを選択</button>
+            </div>
+            
+            <div id="fileInfo" style="display: none;">
+                <div class="status-message status-info">
+                    <div id="fileDetails"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 処理統計 -->
+        <div class="card" id="statsCard" style="display: none;">
+            <h2 class="section-title">📊 処理統計</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalCompanies">0</div>
+                    <div class="stat-label">総企業数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="unprocessedCompanies">0</div>
+                    <div class="stat-label">未処理企業</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="nextBatchCount">0</div>
+                    <div class="stat-label">次回処理数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="successRate">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 処理コントロール -->
+        <div class="card">
+            <h2 class="section-title">⚡ 処理実行</h2>
+            <div class="controls">
+                <button id="processBtn" class="process-btn" onclick="startHeadlessProcessing()" disabled>
+                    🤖 ヘッドレス処理開始
+                </button>
+                <button id="stopBtn" class="process-btn stop-btn" onclick="stopProcessing()" disabled>
+                    ⏹️ 処理停止
+                </button>
+            </div>
+            
+            <div id="progressContainer" class="progress-container" style="display: none;">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <div id="progressText" class="progress-text">待機中...</div>
+            </div>
+            
+            <div id="statusMessage"></div>
+        </div>
+        
+        <!-- プレビューテーブル -->
+        <div class="card" id="previewCard" style="display: none;">
+            <h2 class="section-title">👀 データプレビュー</h2>
+            <div style="overflow-x: auto;">
+                <table class="preview-table">
+                    <thead>
+                        <tr>
+                            <th>企業名</th>
+                            <th>URL</th>
+                            <th>処理状況</th>
+                        </tr>
+                    </thead>
+                    <tbody id="previewTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket接続
+        const socket = io();
+        let currentFile = null;
+        let fileStats = null;
+        
+        // ファイル選択処理
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            currentFile = file;
+            uploadFile(file);
+        }
+        
+        // ドラッグ&ドロップ対応
+        const uploadArea = document.querySelector('.upload-area');
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.name.endsWith('.csv')) {
+                    currentFile = file;
+                    document.getElementById('fileInput').files = files;
+                    uploadFile(file);
+                } else {
+                    showStatus('CSVファイルを選択してください', 'error');
+                }
+            }
+        });
+        
+        // ファイルアップロード
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                showStatus('ファイルをアップロード中...', 'info');
+                
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    fileStats = result;
+                    displayFileInfo(result);
+                    showStatus(`✅ アップロード成功: ${result.total_companies}社のデータ`, 'success');
+                    document.getElementById('processBtn').disabled = false;
+                } else {
+                    showStatus(`❌ アップロードエラー: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ アップロードエラー: ${error.message}`, 'error');
+            }
+        }
+        
+        // ファイル情報表示
+        function displayFileInfo(data) {
+            document.getElementById('fileInfo').style.display = 'block';
+            document.getElementById('fileDetails').innerHTML = `
+                <strong>📁 ${data.filename}</strong><br>
+                総企業数: <strong>${data.total_companies}</strong>社<br>
+                未処理企業: <strong>${data.unprocessed_companies}</strong>社<br>
+                今回処理予定: <strong>${data.next_batch_count}</strong>社
+            `;
+            
+            // 統計表示
+            document.getElementById('statsCard').style.display = 'block';
+            document.getElementById('totalCompanies').textContent = data.total_companies;
+            document.getElementById('unprocessedCompanies').textContent = data.unprocessed_companies;
+            document.getElementById('nextBatchCount').textContent = data.next_batch_count;
+            
+            // プレビューテーブル表示
+            displayPreviewTable(data.preview);
+        }
+        
+        // プレビューテーブル表示
+        function displayPreviewTable(preview) {
+            const tbody = document.getElementById('previewTableBody');
+            tbody.innerHTML = '';
+            
+            preview.forEach(company => {
+                const row = tbody.insertRow();
+                row.insertCell(0).textContent = company.company_name;
+                row.insertCell(1).textContent = company.url;
+                
+                const statusCell = row.insertCell(2);
+                if (company.processed) {
+                    statusCell.innerHTML = '<span class="processed-badge">処理済み</span>';
+                } else {
+                    statusCell.innerHTML = '<span class="unprocessed-badge">未処理</span>';
+                }
+            });
+            
+            document.getElementById('previewCard').style.display = 'block';
+        }
+        
+        // ヘッドレス処理開始
+        async function startHeadlessProcessing() {
+            if (!currentFile || !fileStats) {
+                showStatus('❌ ファイルを先にアップロードしてください', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/start-headless', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: fileStats.filename
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('processBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    document.getElementById('progressContainer').style.display = 'block';
+                    showStatus('🤖 ヘッドレス処理を開始しました...', 'info');
+                } else {
+                    showStatus(`❌ 処理開始エラー: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ 処理開始エラー: ${error.message}`, 'error');
+            }
+        }
+        
+        // 処理停止
+        async function stopProcessing() {
+            try {
+                const response = await fetch('/api/stop', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                showStatus(result.message, 'info');
+                
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            } catch (error) {
+                showStatus(`❌ 停止エラー: ${error.message}`, 'error');
+            }
+        }
+        
+        // ステータスメッセージ表示
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.className = `status-message status-${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            
+            // 5秒後に自動非表示（エラー以外）
+            if (type !== 'error') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        // 進捗更新
+        function updateProgress(progress, message) {
+            document.getElementById('progressFill').style.width = `${progress}%`;
+            document.getElementById('progressText').textContent = `${message} (${progress}%)`;
+        }
+        
+        // WebSocket イベントリスナー
+        socket.on('connect', () => {
+            console.log('WebSocketに接続しました');
+        });
+        
+        socket.on('status_update', (data) => {
+            updateProgress(data.progress, data.message);
+            
+            if (data.progress >= 100) {
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                
+                // 統計を更新
+                updateProcessingStats();
+            }
+        });
+        
+        // 処理統計を更新
+        async function updateProcessingStats() {
+            try {
+                const response = await fetch('/api/processing-status');
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('successRate').textContent = `${result.success_rate.toFixed(1)}%`;
+                    
+                    // ファイル情報を再取得して未処理数を更新
+                    if (currentFile) {
+                        const formData = new FormData();
+                        formData.append('file', currentFile);
+                        
+                        const uploadResponse = await fetch('/api/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const uploadResult = await uploadResponse.json();
+                        if (uploadResult.success) {
+                            document.getElementById('unprocessedCompanies').textContent = uploadResult.unprocessed_companies;
+                            document.getElementById('nextBatchCount').textContent = uploadResult.next_batch_count;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('統計更新エラー:', error);
+            }
+        }
+        
+        // ページ読み込み時の初期化
+        document.addEventListener('DOMContentLoaded', () => {
+            updateProcessingStats();
+        });
+    </script>
+</body>
+</html>

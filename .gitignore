@@ -1,0 +1,34 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+uploads/
+logs/
+*.log
+.env
+.DS_Store
+node_modules/
+
+# Excel files
+*.xlsx
+*.xls
+
+# Documentation with sensitive info
+CLAUDE.md
+フォーム営業システム要件定義書.md
+
+# Python cache files
+__pycache__/form_sales_system.cpython-310.pyc
+__pycache__/form_sales_system.cpython-312.pyc
+Miniconda3-latest-Linux-x86_64.sh
+form_sales.db
+# Build artifacts
+/build/
+/dist/
+*.exe
+*.pkg
+*.sh
