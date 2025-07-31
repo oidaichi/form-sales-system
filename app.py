@@ -1,232 +1,249 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+自動フォーム送信システム - メインアプリケーション
+LOVANTVICTORIA営業支援システム
+"""
 
-from flask import Flask, render_template, request, jsonify, session
-from flask_socketio import SocketIO, emit
-import pandas as pd
 import os
-import asyncio
+import json
 import time
-from playwright.async_api import async_playwright
-import csv_processor
-from form_filler import FormFiller
-from form_detector import FormDetector
-from logger_config import setup_logging
-from database import init_app, get_db
-import sqlite3
-import hashlib
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify, send_file
+from werkzeug.utils import secure_filename
+import threading
+import logging
 
+# フォーム自動化ロジックをインポート
+from form_automation import process_urls, setup_logging
+
+# Flaskアプリケーションの初期化
 app = Flask(__name__)
-app.config.from_object('config.Config')
-init_app(app)
-socketio = SocketIO(app)
+app.config['SECRET_KEY'] = 'lovantvictoria-form-automation-2025'
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB制限
+
+# アップロードフォルダを作成
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ロギング設定
-logger = setup_logging(log_level=app.config['LOG_LEVEL'])
+setup_logging()
+logger = logging.getLogger(__name__)
 
-# 標準入力データセット (README_システム概要.mdより)
-FORM_DATA = {
-  "company_data": {
-    "target_company": "", # CSVから取得
-    "sender_company": "株式会社みねふじこ",
-    "sender_name": "富安　朱",
-    "sender_furigana": "とみやす　あや",
-    "sender_email": "minefujiko.honbu@gmail.com",
-    "sender_phone": "08036855092",
-    "sender_address": "東京都港区南青山3丁目1番36号青山丸竹ビル6F",
-    "sender_postal_code": "107-0062"
-  },
-  "message_data": {
-    "subject": "業務提携のご相談",
-    "message": "お世話になっております。弊社サービスについてご紹介させていただきたく、ご連絡いたします。ぜひ一度お打ち合わせの機会をいただければと思います。ご検討のほど、よろしくお願いいたします。"
-  },
-  "form_defaults": {
-    "inquiry_type": "その他",
-    "consultation_type": "お問い合わせ",
-    "privacy_agreement": True,
-    "newsletter_subscription": False
-  }
+# グローバル変数で処理状態を管理
+processing_status = {
+    'is_running': False,
+    'current_url': '',
+    'total_urls': 0,
+    'processed': 0,
+    'success': 0,
+    'failed': 0,
+    'results': [],
+    'output_file': None
 }
+
+def allowed_file(filename):
+    """アップロード可能なファイル形式をチェック"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in {'csv', 'xlsx', 'xls'}
 
 @app.route('/')
 def index():
+    """メインページを表示"""
     return render_template('index.html')
 
-@app.route('/upload_csv', methods=['POST'])
-def upload_csv():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    if file and file.filename.endswith('.csv'):
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-        file.save(filepath)
-        
-        processed_df, message = csv_processor.process_csv_file(filepath)
-
-        if processed_df is None:
-            return jsonify({'error': message}), 400
-        
-        # セッションではなく、JSONレスポンスで全データを返す
-        all_data = processed_df.to_dict(orient='records')
-        preview_data = processed_df.head().to_dict(orient='records')
-        
-        return jsonify({
-            'message': 'File uploaded successfully', 
-            'preview': preview_data, 
-            'total_companies': len(processed_df),
-            'processed_csv_data': all_data  # 全データを追加
-        }), 200
-    return jsonify({'error': 'Invalid file type'}), 400
-
-@socketio.on('connect')
-def test_connect():
-    emit('my response', {'data': 'Connected'})
-
-@socketio.on('disconnect')
-def test_disconnect():
-    print('Client disconnected')
-
-async def process_company(company_data, browser_config):
-    company_name = company_data['company']
-    company_url = company_data['url']
-    contact_url_from_csv = company_data.get('contact_url') # CSVから取得したcontact_url
-
-    logger.info(f"[START] {company_name} - {company_url}")
-    socketio.emit('processing_status', {'message': f'Processing: {company_name}', 'company': company_name, 'status': 'processing'})
-
-    status = "failed"
-    message = "Unknown error"
-    
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    """ファイルアップロードを処理"""
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=browser_config["headless"])
-            page = await browser.new_page()
-            await page.set_viewport_size(browser_config["viewport"])
-            await page.set_extra_http_headers({'User-Agent': browser_config["user_agent"]})
-            page.set_default_timeout(browser_config["timeout"])
-
-            # 1. 企業URLにアクセス
-            try:
-                await page.goto(company_url, wait_until="networkidle")
-                page_title = await page.title()
-                current_url = page.url
-                logger.info(f"Accessed {company_url}. Current URL: {current_url}")
-            except Exception as e:
-                message = f"❌ URLアクセスエラー: {company_url} - {e}"
-                logger.error(message)
-                await browser.close()
-                socketio.emit('processing_status', {'message': message, 'company': company_name, 'status': 'failed'})
-                return {'status': 'failed', 'message': message, 'company': company_name}
-
-            # 2. お問い合わせページの特定と遷移
-            form_detector = FormDetector(await page.content(), current_url)
-            contact_links = form_detector.find_contact_links()
-            
-            target_contact_url = None
-
-            # CSVにcontact_urlがあれば最優先
-            if contact_url_from_csv and form_detector._is_valid_http_url(contact_url_from_csv):
-                target_contact_url = contact_url_from_csv
-                logger.info(f"Using contact_url from CSV: {target_contact_url}")
-            elif contact_links:
-                target_contact_url = contact_links[0] # 最もスコアの高いリンクを使用
-                logger.info(f"Found contact link: {target_contact_url}")
-            
-            if target_contact_url:
-                try:
-                    await page.goto(target_contact_url, wait_until="networkidle")
-                    current_url = page.url
-                    logger.info(f"Navigated to potential contact page: {current_url}")
-                    
-                    # 遷移先がフォームページか再判定
-                    form_detector_on_contact_page = FormDetector(await page.content(), current_url)
-                    is_form_page, score = form_detector_on_contact_page.detect_form_page()
-
-                    if is_form_page:
-                        logger.info(f"Form page detected with score {score} at {current_url}")
-                        # ここでフォーム入力・送信ロジックを呼び出す
-                        # 現時点ではまだ実装されていないため、成功として終了
-                        status = "success"
-                        message = f"お問い合わせページ検出・遷移成功: {current_url}"
-                    else:
-                        status = "failed"
-                        message = f"お問い合わせページにフォームが見つかりませんでした: {current_url}"
-                        logger.warning(message)
-
-                except Exception as e:
-                    status = "failed"
-                    message = f"お問い合わせページへの遷移エラー: {target_contact_url} - {e}"
-                    logger.error(message)
-            else:
-                status = "failed"
-                message = "お問い合わせページへのリンクが見つかりませんでした。"
-                logger.warning(message)
-            
-            # スクリーンショットを撮る (デバッグ用)
-            screenshot_path = f"screenshots/{company_name.replace('/', '_')}_{int(time.time())}.png"
-            await page.screenshot(path=screenshot_path)
-            logger.info(f"Screenshot saved: {screenshot_path}")
-            
-            await browser.close()
-
-    except Exception as e:
-        message = f"システムエラー: {e}"
-        logger.critical(f"Critical error during processing {company_name}: {e}")
-    finally:
-        socketio.emit('processing_status', {'message': message, 'company': company_name, 'status': status})
-        return {'status': status, 'message': message, 'company': company_name}
-
-@socketio.on('start_processing')
-def start_processing(data):
-    if 'csv_data' not in data or not data['csv_data']:
-        emit('processing_complete', {'message': 'No CSV data received. Please upload a CSV first.'})
-        return
-
-    companies_to_process = data['csv_data']
-    total_companies = len(companies_to_process)
-    browser_config = {
-        "headless": app.config['BROWSER_HEADLESS'],
-        "viewport": {"width": 1280, "height": 720}, # 少し小さくして視認性を上げる
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "timeout": app.config['BROWSER_TIMEOUT'] * 1000,
-        "ignore_https_errors": True,
-        "java_script_enabled": True,
-        "accept_downloads": False
-    }
-
-    emit('processing_start', {'total_companies': total_companies})
-    logger.info(f"Processing started for {total_companies} companies.")
-
-    # eventlet.spawnを使用してバックグラウンドで処理を実行
-    socketio.start_background_task(
-        target=_run_processing_loop, 
-        companies=companies_to_process, 
-        browser_config=browser_config
-    )
-
-def _run_processing_loop(companies, browser_config):
-    """会社リストを順番に処理するループ"""
-    total_companies = len(companies)
-    for i, company_data in enumerate(companies):
-        logger.info(f"Processing batch {i + 1} / {total_companies}")
-        result = asyncio.run(process_company(company_data, browser_config))
+        if 'file' not in request.files:
+            return jsonify({'error': 'ファイルが選択されていません'}), 400
         
-        socketio.emit('processing_progress', {
-            'progress': int(((i + 1) / total_companies) * 100),
-            'current_index': i,
-            'current_company': result.get('company', 'N/A'),
-            'status': result.get('status', 'N/A'),
-            'message': result.get('message', 'N/A'),
-            'processed_count': i + 1,
-            'total_companies': total_companies
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'ファイルが選択されていません'}), 400
+        
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            # タイムスタンプを追加してファイル名の重複を避ける
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            name, ext = os.path.splitext(filename)
+            filename = f"{name}_{timestamp}{ext}"
+            
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            
+            # ファイルを読み取ってURL数をカウント
+            from form_automation import read_input_file, get_target_urls
+            
+            try:
+                df = read_input_file(filepath)
+                urls = get_target_urls(df)
+                url_count = len(urls)
+                
+                logger.info(f"ファイルアップロード成功: {filename}, URL数: {url_count}")
+                return jsonify({
+                    'message': 'ファイルアップロード成功',
+                    'filename': filename,
+                    'filepath': filepath,
+                    'url_count': url_count,
+                    'total_rows': len(df)
+                })
+                
+            except Exception as e:
+                logger.error(f"ファイル解析エラー: {str(e)}")
+                return jsonify({
+                    'message': 'ファイルアップロード成功（URL数解析失敗）',
+                    'filename': filename,
+                    'filepath': filepath,
+                    'url_count': 0,
+                    'error': f'ファイル解析エラー: {str(e)}'
+                })
+        else:
+            return jsonify({'error': 'CSVまたはExcelファイルを選択してください'}), 400
+            
+    except Exception as e:
+        logger.error(f"ファイルアップロードエラー: {str(e)}")
+        return jsonify({'error': f'アップロードエラー: {str(e)}'}), 500
+
+@app.route('/start_processing', methods=['POST'])
+def start_processing():
+    """フォーム送信処理を開始"""
+    try:
+        if processing_status['is_running']:
+            return jsonify({'error': '既に処理中です'}), 400
+        
+        data = request.get_json()
+        if not data or 'filepath' not in data:
+            return jsonify({'error': 'ファイルパスが指定されていません'}), 400
+        
+        filepath = data['filepath']
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'ファイルが見つかりません'}), 400
+        
+        # 処理状態を初期化
+        processing_status.update({
+            'is_running': True,
+            'current_url': '',
+            'total_urls': 0,
+            'processed': 0,
+            'success': 0,
+            'failed': 0,
+            'results': [],
+            'output_file': None
         })
-        socketio.sleep(app.config['PROCESSING_INTERVAL']) # 企業間のインターバル
+        
+        # バックグラウンドで処理を開始
+        thread = threading.Thread(
+            target=run_automation_background,
+            args=(filepath,)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        logger.info(f"自動化処理開始: {filepath}")
+        return jsonify({'message': '処理を開始しました'})
+        
+    except Exception as e:
+        logger.error(f"処理開始エラー: {str(e)}")
+        return jsonify({'error': f'処理開始エラー: {str(e)}'}), 500
 
-    logger.info("All companies processed.")
-    socketio.emit('processing_complete', {'message': '全ての処理が完了しました。'})
+def run_automation_background(filepath):
+    """バックグラウンドで自動化処理を実行"""
+    try:
+        # フォーム自動化処理を実行
+        result = process_urls(
+            filepath,
+            processing_status,
+            update_status_callback
+        )
+        
+        # 処理完了
+        processing_status['is_running'] = False
+        processing_status['output_file'] = result.get('output_file')
+        
+        logger.info(f"処理完了: 成功={processing_status['success']}, 失敗={processing_status['failed']}")
+        
+    except Exception as e:
+        logger.error(f"バックグラウンド処理エラー: {str(e)}")
+        processing_status['is_running'] = False
 
+def update_status_callback(current_url, processed, success, failed, total, results):
+    """処理状況を更新するコールバック関数"""
+    processing_status.update({
+        'current_url': current_url,
+        'processed': processed,
+        'success': success,
+        'failed': failed,
+        'total_urls': total,
+        'results': results
+    })
 
+@app.route('/status')
+def get_status():
+    """現在の処理状況を取得"""
+    return jsonify(processing_status)
+
+@app.route('/stop', methods=['POST'])
+def stop_processing():
+    """処理を停止"""
+    try:
+        processing_status['is_running'] = False
+        logger.info("処理停止要求")
+        return jsonify({'message': '処理を停止しました'})
+    except Exception as e:
+        logger.error(f"処理停止エラー: {str(e)}")
+        return jsonify({'error': f'停止エラー: {str(e)}'}), 500
+
+@app.route('/download')
+def download_result():
+    """処理結果ファイルをダウンロード"""
+    try:
+        output_file = processing_status.get('output_file')
+        if not output_file or not os.path.exists(output_file):
+            return jsonify({'error': '結果ファイルが見つかりません'}), 404
+        
+        logger.info(f"結果ファイルダウンロード: {output_file}")
+        return send_file(
+            output_file,
+            as_attachment=True,
+            download_name=os.path.basename(output_file)
+        )
+    except Exception as e:
+        logger.error(f"ダウンロードエラー: {str(e)}")
+        return jsonify({'error': f'ダウンロードエラー: {str(e)}'}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    """404エラーハンドラ"""
+    return jsonify({'error': 'ページが見つかりません'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    """500エラーハンドラ"""
+    logger.error(f"内部エラー: {str(error)}")
+    return jsonify({'error': '内部サーバーエラーが発生しました'}), 500
 
 if __name__ == '__main__':
-    # eventletを使用して非同期処理を有効にする
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
+    print("=" * 60)
+    print("🤖 LOVANTVICTORIA 自動フォーム送信システム")
+    print("=" * 60)
+    print("📡 サーバー起動中...")
+    print("🌐 アクセス方法:")
+    print("   👉 ローカル: http://127.0.0.1:5000")
+    print("   👉 ローカル: http://localhost:5000")
+    print("   👉 GCE外部: http://[EXTERNAL_IP]:5000")
+    print("=" * 60)
+    print("✅ システム準備完了")
+    print("✅ ファイルアップロード機能: 有効")
+    print("✅ フォーム自動送信機能: 有効")
+    print("✅ 結果ダウンロード機能: 有効")
+    print("")
+    print("💡 GCE環境での初回起動時:")
+    print("   1. ./setup_gce.sh でセットアップ実行")
+    print("   2. source ~/.bashrc で環境変数読み込み")
+    print("   3. export DISPLAY=:99 でディスプレイ設定")
+    print("=" * 60)
+    
+    # GCE本番環境対応（外部からのアクセスを許可）
+    app.run(host='0.0.0.0', port=5000, debug=False)

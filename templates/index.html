@@ -3,132 +3,287 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自動フォーム送信システム</title>
+    <title>LOVANTVICTORIA 自動フォーム送信システム</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             padding: 20px;
-            background-color: #f5f5f5;
         }
+        
         .container {
+            max-width: 1000px;
+            margin: 0 auto;
             background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .main-content {
+            padding: 40px;
+        }
+        
+        .company-info {
+            background: linear-gradient(135deg, #e8f5e8 0%, #f0f8f0 100%);
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 5px solid #27ae60;
+        }
+        
+        .company-info h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        
+        .info-item {
+            display: flex;
+            align-items: center;
+        }
+        
+        .info-item strong {
+            color: #2c3e50;
+            width: 100px;
+            flex-shrink: 0;
+        }
+        
+        .upload-section {
+            background: #f8f9fa;
             padding: 30px;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
+            margin-bottom: 30px;
+            border: 2px dashed #dee2e6;
             text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-section:hover {
+            border-color: #007bff;
+            background: #f0f7ff;
+        }
+        
+        .upload-section h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            margin: 20px 0;
+        }
+        
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        
+        .file-input-button {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #007bff;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1.1em;
+        }
+        
+        .file-input-button:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+        
+        .file-info {
+            margin-top: 15px;
+            padding: 10px;
+            background: #d4edda;
+            border-radius: 5px;
+            color: #155724;
+            display: none;
+        }
+        
+        .control-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
             margin-bottom: 30px;
         }
+        
+        .btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #c82333;
+        }
+        
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
         .status-panel {
             background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
+            padding: 25px;
+            border-radius: 10px;
             margin-bottom: 20px;
             border-left: 4px solid #007bff;
         }
-        .controls {
-            text-align: center;
-            margin-bottom: 30px;
+        
+        .status-panel h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
         }
-        button {
-            padding: 12px 30px;
-            margin: 0 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: background-color 0.3s;
-        }
-        .btn-start {
-            background-color: #28a745;
-            color: white;
-        }
-        .btn-start:hover {
-            background-color: #218838;
-        }
-        .btn-stop {
-            background-color: #dc3545;
-            color: white;
-        }
-        .btn-stop:hover {
-            background-color: #c82333;
-        }
-        .btn-start:disabled, .btn-stop:disabled {
-            background-color: #6c757d;
-            cursor: not-allowed;
-        }
+        
         .progress-bar {
             width: 100%;
-            height: 20px;
-            background-color: #e9ecef;
-            border-radius: 10px;
+            height: 25px;
+            background: #e9ecef;
+            border-radius: 12px;
             overflow: hidden;
-            margin: 10px 0;
+            margin: 15px 0;
         }
+        
         .progress-fill {
             height: 100%;
-            background-color: #007bff;
+            background: linear-gradient(90deg, #28a745, #20c997);
             transition: width 0.3s ease;
+            width: 0%;
         }
-        .stats {
+        
+        .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin: 20px 0;
         }
+        
         .stat-card {
             background: white;
             padding: 20px;
             border-radius: 8px;
             text-align: center;
-            border: 1px solid #dee2e6;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-top: 3px solid #007bff;
         }
+        
         .stat-number {
-            font-size: 2em;
+            font-size: 2.5em;
             font-weight: bold;
             color: #007bff;
+            margin-bottom: 5px;
         }
+        
         .stat-label {
             color: #6c757d;
-            margin-top: 5px;
+            font-size: 0.9em;
         }
-        .results-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
+        
+        .results-section {
+            margin-top: 30px;
+            display: none;
         }
-        .results-table th,
-        .results-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #dee2e6;
-        }
-        .results-table th {
-            background-color: #f8f9fa;
-            font-weight: bold;
-        }
-        .status-success {
-            color: #28a745;
-            font-weight: bold;
-        }
-        .status-failed {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        .company-info {
-            background: #e8f5e8;
-            padding: 15px;
+        
+        .results-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
             border-radius: 8px;
-            margin-bottom: 20px;
         }
-        .company-info h3 {
-            margin-top: 0;
+        
+        .result-item {
+            padding: 15px;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        }
+        
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .result-success {
+            background: #d4edda;
             color: #155724;
         }
+        
+        .result-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .result-url {
+            flex: 1;
+            font-weight: bold;
+        }
+        
+        .result-status {
+            margin-left: 15px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        
         .loading {
             display: inline-block;
             width: 20px;
@@ -138,192 +293,346 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
+        
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        @media (max-width: 768px) {
+            .control-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤖 自動フォーム送信システム</h1>
+        <div class="header">
+            <h1>🤖 自動フォーム送信システム</h1>
+            <p>LOVANTVICTORIA営業支援ツール</p>
+        </div>
         
-        <div class="company-info">
-            <h3>送信する会社情報</h3>
-            <p><strong>会社名:</strong> LOVANTVICTORIA</p>
-            <p><strong>代表者:</strong> 冨安 朱</p>
-            <p><strong>メール:</strong> info@lovantvictoria.com</p>
-            <p><strong>所在地:</strong> 東京都目黒区八雲3-18-9</p>
-            <p><strong>事業内容:</strong> 生成AI技術の企業普及、AI研修、助成金活用支援</p>
-        </div>
-
-        <div class="status-panel">
-            <h3>システム状況</h3>
-            <p id="status-text">待機中</p>
-            <p id="current-url"></p>
-            <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+        <div class="main-content">
+            <!-- 会社情報表示 -->
+            <div class="company-info">
+                <h3>📋 送信する会社情報</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <strong>会社名:</strong>
+                        <span>LOVANTVICTORIA</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>担当者:</strong>
+                        <span>冨安 朱</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>メール:</strong>
+                        <span>info@lovantvictoria.com</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>電話:</strong>
+                        <span>080-3685-5092</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>所在地:</strong>
+                        <span>東京都目黒区八雲3-18-9</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>事業内容:</strong>
+                        <span>住宅不動産業界特化のDXコンサル、助成金活用AI研修</span>
+                    </div>
+                </div>
             </div>
-            <p id="progress-text">0 / 0 処理完了</p>
-        </div>
-
-        <div class="controls">
-            <button id="start-btn" class="btn-start" onclick="startAutomation()">
-                <span id="start-text">処理開始</span>
-            </button>
-            <button id="stop-btn" class="btn-stop" onclick="stopAutomation()" disabled>
-                処理停止
-            </button>
-        </div>
-
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-number" id="total-count">0</div>
-                <div class="stat-label">総URL数</div>
+            
+            <!-- ファイルアップロードセクション -->
+            <div class="upload-section">
+                <h3>📁 CSVまたはExcelファイルをアップロード</h3>
+                <p>contact_url列またはE-mail列が含まれたファイルを選択してください</p>
+                
+                <div class="file-input-wrapper">
+                    <input type="file" id="fileInput" class="file-input" accept=".csv,.xlsx,.xls">
+                    <label for="fileInput" class="file-input-button">
+                        📁 ファイルを選択
+                    </label>
+                </div>
+                
+                <div id="fileInfo" class="file-info">
+                    <strong>選択済み:</strong> <span id="fileName"></span>
+                </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number" id="success-count">0</div>
-                <div class="stat-label">成功</div>
+            
+            <!-- 制御ボタン -->
+            <div class="control-buttons">
+                <button id="startBtn" class="btn btn-primary" disabled>
+                    🚀 処理開始
+                </button>
+                <button id="stopBtn" class="btn btn-secondary" disabled>
+                    ⏹️ 処理停止
+                </button>
+                <button id="downloadBtn" class="btn btn-primary hidden">
+                    💾 結果ダウンロード
+                </button>
             </div>
-            <div class="stat-card">
-                <div class="stat-number" id="failed-count">0</div>
-                <div class="stat-label">失敗</div>
+            
+            <!-- ステータスパネル -->
+            <div class="status-panel">
+                <h3>📊 処理状況</h3>
+                <div id="statusText">待機中...</div>
+                <div id="currentUrl" style="margin-top: 10px; color: #6c757d;"></div>
+                
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <div id="progressText">0 / 0 処理完了</div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div id="totalCount" class="stat-number">0</div>
+                        <div class="stat-label">総URL数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="successCount" class="stat-number">0</div>
+                        <div class="stat-label">成功</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="failedCount" class="stat-number">0</div>
+                        <div class="stat-label">失敗</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="processedCount" class="stat-number">0</div>
+                        <div class="stat-label">処理済み</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number" id="processed-count">0</div>
-                <div class="stat-label">処理済み</div>
+            
+            <!-- 処理結果セクション -->
+            <div id="resultsSection" class="results-section">
+                <h3>📈 処理結果詳細</h3>
+                <div id="resultsList" class="results-list"></div>
             </div>
-        </div>
-
-        <div id="results-section" style="display: none;">
-            <h3>処理結果</h3>
-            <table class="results-table">
-                <thead>
-                    <tr>
-                        <th>URL</th>
-                        <th>ステータス</th>
-                        <th>フィールド数</th>
-                        <th>メッセージ</th>
-                        <th>時刻</th>
-                    </tr>
-                </thead>
-                <tbody id="results-tbody">
-                </tbody>
-            </table>
         </div>
     </div>
 
     <script>
-        let isRunning = false;
-        let statusInterval;
-
-        function updateStatus() {
-            fetch('/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('total-count').textContent = data.total_urls;
-                    document.getElementById('success-count').textContent = data.success;
-                    document.getElementById('failed-count').textContent = data.failed;
-                    document.getElementById('processed-count').textContent = data.processed;
-
-                    const progressPercent = data.total_urls > 0 ? (data.processed / data.total_urls) * 100 : 0;
-                    document.getElementById('progress-fill').style.width = progressPercent + '%';
-                    document.getElementById('progress-text').textContent = `${data.processed} / ${data.total_urls} 処理完了`;
-
-                    if (data.is_running) {
-                        document.getElementById('status-text').innerHTML = '<span class="loading"></span> 処理中...';
-                        document.getElementById('current-url').textContent = data.current_url ? `現在処理中: ${data.current_url}` : '';
-                        document.getElementById('start-btn').disabled = true;
-                        document.getElementById('stop-btn').disabled = false;
-                        document.getElementById('start-text').textContent = '処理中...';
-                    } else {
-                        document.getElementById('status-text').textContent = data.processed > 0 ? '処理完了' : '待機中';
-                        document.getElementById('current-url').textContent = '';
-                        document.getElementById('start-btn').disabled = false;
-                        document.getElementById('stop-btn').disabled = true;
-                        document.getElementById('start-text').textContent = '処理開始';
-                    }
-
-                    // 結果テーブルの更新
-                    if (data.results && data.results.length > 0) {
-                        updateResultsTable(data.results);
-                    }
-                })
-                .catch(error => {
-                    console.error('Status update error:', error);
-                });
-        }
-
-        function updateResultsTable(results) {
-            const tbody = document.getElementById('results-tbody');
-            const resultsSection = document.getElementById('results-section');
+        // グローバル変数
+        let uploadedFilePath = '';
+        let statusInterval = null;
+        
+        // DOM要素取得
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusText = document.getElementById('statusText');
+        const currentUrl = document.getElementById('currentUrl');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const totalCount = document.getElementById('totalCount');
+        const successCount = document.getElementById('successCount');
+        const failedCount = document.getElementById('failedCount');
+        const processedCount = document.getElementById('processedCount');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsList = document.getElementById('resultsList');
+        
+        // ファイル選択時の処理
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                uploadFile(file);
+            }
+        });
+        
+        // ファイルアップロード
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
             
-            tbody.innerHTML = '';
-            results.forEach(result => {
-                const row = document.createElement('tr');
-                const statusClass = result.status === 'success' ? 'status-success' : 'status-failed';
-                const timestamp = new Date(result.timestamp).toLocaleString('ja-JP');
-                
-                row.innerHTML = `
-                    <td>${result.url}</td>
-                    <td class="${statusClass}">${result.status === 'success' ? '成功' : '失敗'}</td>
-                    <td>${result.fields_found}</td>
-                    <td>${result.message}</td>
-                    <td>${timestamp}</td>
-                `;
-                tbody.appendChild(row);
+            // アップロード中の表示
+            fileName.textContent = 'アップロード中...';
+            fileInfo.style.display = 'block';
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('エラー: ' + data.error);
+                    fileInfo.style.display = 'none';
+                } else {
+                    fileName.textContent = data.filename;
+                    fileInfo.style.display = 'block';
+                    uploadedFilePath = data.filepath;
+                    startBtn.disabled = false;
+                    
+                    // URL数を即座に表示
+                    if (data.url_count !== undefined) {
+                        totalCount.textContent = data.url_count;
+                        statusText.textContent = `ファイル解析完了: ${data.url_count}件のURLを検出`;
+                        
+                        // 詳細情報も表示
+                        if (data.total_rows) {
+                            statusText.textContent += ` (全${data.total_rows}行中)`;
+                        }
+                    }
+                    
+                    console.log('ファイルアップロード成功:', data);
+                }
+            })
+            .catch(error => {
+                console.error('アップロードエラー:', error);
+                alert('ファイルアップロードに失敗しました');
+                fileInfo.style.display = 'none';
             });
-            
-            resultsSection.style.display = 'block';
         }
-
-        function startAutomation() {
-            fetch('/api/start', {
+        
+        // 処理開始
+        startBtn.addEventListener('click', function() {
+            if (!uploadedFilePath) {
+                alert('ファイルを選択してください');
+                return;
+            }
+            
+            fetch('/start_processing', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                }
+                },
+                body: JSON.stringify({
+                    filepath: uploadedFilePath
+                })
             })
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
                     alert('エラー: ' + data.error);
                 } else {
-                    alert('処理を開始しました。総URL数: ' + data.total_urls);
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    downloadBtn.classList.add('hidden');
+                    
+                    // ステータス更新を開始
                     statusInterval = setInterval(updateStatus, 2000);
+                    updateStatus(); // 即座に1回実行
                 }
             })
             .catch(error => {
-                console.error('Start error:', error);
-                alert('処理開始でエラーが発生しました');
+                console.error('処理開始エラー:', error);
+                alert('処理開始に失敗しました');
             });
-        }
-
-        function stopAutomation() {
-            fetch('/api/stop', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
+        });
+        
+        // 処理停止
+        stopBtn.addEventListener('click', function() {
+            fetch('/stop', {
+                method: 'POST'
             })
             .then(response => response.json())
             .then(data => {
-                alert('処理を停止しました');
-                if (statusInterval) {
-                    clearInterval(statusInterval);
-                }
+                console.log('処理停止:', data);
+                stopStatusUpdate();
             })
             .catch(error => {
-                console.error('Stop error:', error);
-                alert('処理停止でエラーが発生しました');
+                console.error('停止エラー:', error);
             });
-        }
-
-        // 初期状態の更新
-        updateStatus();
+        });
         
-        // 定期的な状態更新
-        setInterval(updateStatus, 5000);
+        // 結果ダウンロード
+        downloadBtn.addEventListener('click', function() {
+            window.location.href = '/download';
+        });
+        
+        // ステータス更新
+        function updateStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    // 統計情報更新
+                    totalCount.textContent = data.total_urls || 0;
+                    successCount.textContent = data.success || 0;
+                    failedCount.textContent = data.failed || 0;
+                    processedCount.textContent = data.processed || 0;
+                    
+                    // プログレスバー更新
+                    const progress = data.total_urls > 0 ? (data.processed / data.total_urls) * 100 : 0;
+                    progressFill.style.width = progress + '%';
+                    progressText.textContent = `${data.processed || 0} / ${data.total_urls || 0} 処理完了`;
+                    
+                    // ステータステキスト更新
+                    if (data.is_running) {
+                        statusText.innerHTML = '<span class="loading"></span> 処理中...';
+                        currentUrl.textContent = data.current_url ? `現在処理中: ${data.current_url}` : '';
+                    } else {
+                        statusText.textContent = data.processed > 0 ? '処理完了' : '待機中...';
+                        currentUrl.textContent = '';
+                        stopStatusUpdate();
+                        
+                        if (data.processed > 0) {
+                            downloadBtn.classList.remove('hidden');
+                        }
+                    }
+                    
+                    // 結果詳細更新
+                    if (data.results && data.results.length > 0) {
+                        updateResults(data.results);
+                    }
+                })
+                .catch(error => {
+                    console.error('ステータス更新エラー:', error);
+                });
+        }
+        
+        // ステータス更新停止
+        function stopStatusUpdate() {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+                statusInterval = null;
+            }
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+        
+        // 結果詳細更新
+        function updateResults(results) {
+            resultsList.innerHTML = '';
+            
+            results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = `result-item ${result.status === 'success' ? 'result-success' : 'result-failed'}`;
+                
+                item.innerHTML = `
+                    <div class="result-url">${result.company || '不明'}: ${result.url}</div>
+                    <div class="result-status">
+                        ${result.status === 'success' ? '✅ 成功' : '❌ 失敗'} 
+                        ${result.error ? `(${result.error})` : ''}
+                    </div>
+                `;
+                
+                resultsList.appendChild(item);
+            });
+            
+            resultsSection.style.display = 'block';
+        }
+        
+        // 初期ステータス更新
+        updateStatus();
     </script>
 </body>
 </html>
