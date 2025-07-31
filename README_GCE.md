@@ -1,14 +1,62 @@
 # 🚀 GCE Ubuntu環境での自動フォーム送信システム セットアップガイド
 
+## ❌ 重要: App Engineでは動作しません！
+
+**`gcloud app deploy`は使用できません。** このアプリはSelenium WebDriverを使用するため、GCE VM インスタンスで実行する必要があります。
+
 ## 📋 前提条件
-- GCP Compute Engine (Ubuntu 20.04 LTS以上)
-- GUI付きUbuntu環境
-- 外部IPアドレス設定済み
-- ファイアウォール設定でポート5000を開放
+- GCP Compute Engine (Ubuntu 22.04 LTS推奨)
+- gcloud CLI設定済み
+- プロジェクト作成済み
+- 課金設定済み
 
-## 🔧 インストール手順
+## 🚀 簡単デプロイ（推奨）
 
-### 1. システムの自動セットアップ
+### 自動デプロイスクリプトを使用
+```bash
+# プロジェクトIDを指定して実行
+./deploy_gce.sh your-project-id
+```
+
+このスクリプトで以下が自動実行されます：
+- GCE VMインスタンスの作成
+- ファイアウォール設定
+- アプリケーションのデプロイ
+- 自動起動
+
+実行後、表示されるURLにアクセスしてください。
+
+---
+
+## 🔧 手動インストール手順
+
+### 1. GCE VMインスタンス作成
+```bash
+gcloud compute instances create form-automation-vm \
+    --zone=asia-northeast1-a \
+    --machine-type=e2-medium \
+    --boot-disk-size=30GB \
+    --image-family=ubuntu-2204-lts \
+    --image-project=ubuntu-os-cloud \
+    --tags=http-server,https-server
+
+# ファイアウォール設定
+gcloud compute firewall-rules create allow-form-automation \
+    --allow tcp:5000 \
+    --source-ranges 0.0.0.0/0
+```
+
+### 2. SSH接続とセットアップ
+```bash
+# SSH接続
+gcloud compute ssh form-automation-vm --zone=asia-northeast1-a
+
+# リポジトリクローン
+git clone https://github.com/oidaichi/form-sales-system.git
+cd form-sales-system
+```
+
+### 3. システムの自動セットアップ
 ```bash
 # セットアップスクリプトを実行
 ./setup_gce.sh
