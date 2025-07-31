@@ -49,21 +49,26 @@ def setup_logging():
     )
 
 def setup_chrome_driver():
-    """Chrome WebDriverを設定 (GCE Ubuntu対応)"""
+    """Chrome WebDriverを設定 (GCE Ubuntu対応 - GUI表示)"""
     try:
         chrome_options = Options()
         
-        # GCE Ubuntu環境用の設定
+        # GCE Ubuntu環境でGUI表示するための設定
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_argument('--remote-debugging-port=9222')
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument('--disable-web-security')
         chrome_options.add_argument('--allow-running-insecure-content')
-        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+        
+        # GCE環境でブラウザを表示するための設定
+        # --disable-gpu は削除（GUI表示のため）
+        chrome_options.add_argument('--start-maximized')
+        chrome_options.add_argument('--disable-background-timer-throttling')
+        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+        chrome_options.add_argument('--disable-renderer-backgrounding')
         
         # Chrome実行ファイルのパスを検出
         chrome_paths = [
@@ -85,11 +90,18 @@ def setup_chrome_driver():
         else:
             logging.warning("Chrome バイナリが見つかりません")
         
-        # ディスプレイ設定
-        display = os.environ.get('DISPLAY', ':99')
+        # ディスプレイ設定（GCE GUI環境対応）
+        display = os.environ.get('DISPLAY')
         if display:
             chrome_options.add_argument(f'--display={display}')
             logging.info(f"ディスプレイ設定: {display}")
+        else:
+            # DISPLAYが設定されていない場合はデフォルト設定
+            logging.warning("DISPLAY環境変数が設定されていません")
+            logging.warning("GCE GUI環境では 'export DISPLAY=:0' を実行してください")
+            # 仮想ディスプレイを試す
+            chrome_options.add_argument('--display=:99')
+            logging.info("仮想ディスプレイ :99 を使用します")
         
         # WebDriverの検出を回避
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -600,7 +612,7 @@ def save_results(df, results, output_filepath):
         logging.error(f"結果保存エラー: {str(e)}")
         return False
 
-def process_urls(input_filepath, status_dict, callback_func):
+def process_urls(input_filepath, status_dict, callback_func, driver_callback=None):
     """メイン処理関数 - 1行ずつブラウザでURL処理"""
     driver = None
     results = []
@@ -621,6 +633,10 @@ def process_urls(input_filepath, status_dict, callback_func):
         # WebDriver設定とテスト
         logging.info("Chrome WebDriver を初期化中...")
         driver = setup_chrome_driver()
+        
+        # WebDriverのコールバック実行（アプリから参照できるよう）
+        if driver_callback:
+            driver_callback(driver)
         
         # Google アクセステスト
         try:
@@ -653,16 +669,32 @@ def process_urls(input_filepath, status_dict, callback_func):
             
             # 新しいタブでURL処理
             try:
-                # 新しいタブを開いてそのタブに切り替え
+                # 現在のタブハンドル数を記録
                 original_handles = driver.window_handles
-                driver.execute_script("window.open('');")
-                # 新しいタブが開かれるまで少し待機
-                time.sleep(1)
-                new_handles = driver.window_handles
-                new_tab = list(set(new_handles) - set(original_handles))[0]
-                driver.switch_to.window(new_tab)
+                original_count = len(original_handles)
+                logging.info(f"現在のタブ数: {original_count}")
                 
-                logging.info(f"新しいタブで処理開始: {url_info['url']}")
+                # 新しいタブを開く（JavaScriptで確実に開く）
+                driver.execute_script("window.open('about:blank', '_blank');")
+                
+                # 新しいタブが開かれるまで待機（最大5秒）
+                new_tab_handle = None
+                for attempt in range(10):
+                    time.sleep(0.5)
+                    current_handles = driver.window_handles
+                    if len(current_handles) > original_count:
+                        # 新しいタブのハンドルを特定
+                        new_tab_handle = list(set(current_handles) - set(original_handles))[0]
+                        break
+                    logging.debug(f"新しいタブ待機中... 試行{attempt+1}")
+                
+                if new_tab_handle:
+                    # 新しいタブに切り替え
+                    driver.switch_to.window(new_tab_handle)
+                    logging.info(f"新しいタブに切り替え成功 (ハンドル: {new_tab_handle})")
+                    logging.info(f"新しいタブで処理開始: {url_info['url']}")
+                else:
+                    raise Exception("新しいタブの作成に失敗しました")
                 
                 # URL処理
                 result = process_single_url(driver, url_info)

@@ -17,17 +17,33 @@
 このスクリプトで以下が自動実行されます：
 - システムパッケージの更新
 - Google Chrome Stableのインストール
-- 仮想ディスプレイ(Xvfb)のセットアップ
+- GUIデスクトップ環境のセットアップ
 - Python依存関係のインストール
 - 必要な環境変数の設定
 
-### 2. 環境変数の読み込み
+### 2. GCE環境でのGUI設定
+
+#### デスクトップ環境での起動（推奨）
+```bash
+# GCEインスタンスでデスクトップ環境を起動
+# RDP接続またはVNC接続でGUIデスクトップにアクセス
+export DISPLAY=:0
+```
+
+#### 仮想ディスプレイでの起動（ヘッドレス環境）
 ```bash
 source ~/.bashrc
 export DISPLAY=:99
+# Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
 ```
 
-### 3. システム起動
+### 3. ブラウザ動作テスト
+```bash
+# GUI環境でのブラウザ動作をテスト
+python3 test_gui_browser.py
+```
+
+### 4. システム起動
 ```bash
 python3 app.py
 ```

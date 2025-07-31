@@ -42,6 +42,10 @@ processing_status = {
     'output_file': None
 }
 
+# グローバルで実行中のスレッドとWebDriverを管理
+current_thread = None
+current_driver = None
+
 def allowed_file(filename):
     """アップロード可能なファイル形式をチェック"""
     return '.' in filename and \
@@ -134,12 +138,13 @@ def start_processing():
         })
         
         # バックグラウンドで処理を開始
-        thread = threading.Thread(
+        global current_thread
+        current_thread = threading.Thread(
             target=run_automation_background,
             args=(filepath,)
         )
-        thread.daemon = True
-        thread.start()
+        current_thread.daemon = True
+        current_thread.start()
         
         logger.info(f"自動化処理開始: {filepath}")
         return jsonify({'message': '処理を開始しました'})
@@ -150,12 +155,19 @@ def start_processing():
 
 def run_automation_background(filepath):
     """バックグラウンドで自動化処理を実行"""
+    global current_driver
     try:
         # フォーム自動化処理を実行
+        # WebDriverコールバック関数を定義
+        def set_current_driver(driver):
+            global current_driver
+            current_driver = driver
+        
         result = process_urls(
             filepath,
             processing_status,
-            update_status_callback
+            update_status_callback,
+            driver_callback=set_current_driver
         )
         
         # 処理完了
@@ -164,9 +176,13 @@ def run_automation_background(filepath):
         
         logger.info(f"処理完了: 成功={processing_status['success']}, 失敗={processing_status['failed']}")
         
+        # WebDriver参照をクリア
+        current_driver = None
+        
     except Exception as e:
         logger.error(f"バックグラウンド処理エラー: {str(e)}")
         processing_status['is_running'] = False
+        current_driver = None
 
 def update_status_callback(current_url, processed, success, failed, total, results):
     """処理状況を更新するコールバック関数"""
@@ -188,8 +204,31 @@ def get_status():
 def stop_processing():
     """処理を停止"""
     try:
+        global current_driver, current_thread
+        
+        # 処理状態を停止に設定
         processing_status['is_running'] = False
         logger.info("処理停止要求")
+        
+        # WebDriverが存在する場合は強制終了
+        if current_driver:
+            try:
+                logger.info("WebDriverを強制終了中...")
+                current_driver.quit()
+                current_driver = None
+                logger.info("WebDriver終了完了")
+            except Exception as e:
+                logger.warning(f"WebDriver終了エラー（無視）: {str(e)}")
+        
+        # スレッドが存在し実行中の場合は終了を待機
+        if current_thread and current_thread.is_alive():
+            logger.info("バックグラウンドスレッドの終了を待機中...")
+            # スレッドの終了を少し待機（最大3秒）
+            current_thread.join(timeout=3)
+            if current_thread.is_alive():
+                logger.warning("スレッドが終了しませんでしたが、処理を続行します")
+            current_thread = None
+        
         return jsonify({'message': '処理を停止しました'})
     except Exception as e:
         logger.error(f"処理停止エラー: {str(e)}")
