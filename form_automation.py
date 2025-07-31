@@ -102,8 +102,8 @@ def setup_chrome_driver():
         # WebDriverであることを隠す
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
-        # ページ読み込みタイムアウト設定
-        driver.set_page_load_timeout(30)
+        # ページ読み込みタイムアウト設定（CLAUDE.md要件: 10秒）
+        driver.set_page_load_timeout(10)
         driver.implicitly_wait(10)
         
         logging.info("Chrome WebDriver 初期化成功")
@@ -186,16 +186,16 @@ def get_target_urls(df):
     return urls
 
 def find_form_fields(driver):
-    """フォーム入力欄を検出"""
+    """フォーム入力欄を検出 - CLAUDE.md要件に準拠"""
     fields = {}
     
-    # フィールド検出パターン
+    # フィールド検出パターン（優先度順）
     field_patterns = {
-        'name': ['name', 'お名前', '氏名', 'your-name', 'customer-name'],
-        'company': ['company', '会社名', 'organization', 'corp', 'your-company'],
-        'email': ['email', 'mail', 'メール', 'e-mail', 'your-email'],
-        'phone': ['phone', 'tel', '電話', '電話番号', 'your-phone'],
-        'message': ['message', 'content', 'body', 'inquiry', 'comment', 'お問い合わせ', 'your-message', 'textarea']
+        'name': ['name', 'お名前', '氏名', '名前', 'your-name', 'customer-name', 'fullname', 'contact-name'],
+        'company': ['company', '会社名', '会社', 'organization', 'corp', 'your-company', 'corp-name'],
+        'email': ['email', 'mail', 'メール', 'e-mail', 'your-email', 'address', 'mailaddress'],
+        'phone': ['phone', 'tel', '電話', '電話番号', 'your-phone', 'telephone', 'contact-phone'],
+        'message': ['message', 'content', 'body', 'inquiry', 'comment', 'お問い合わせ', 'your-message', 'textarea', '内容', 'details']
     }
     
     for field_type, patterns in field_patterns.items():
@@ -280,50 +280,65 @@ def fill_form_fields(driver, fields):
         return False
 
 def handle_select_elements(driver):
-    """プルダウンとラジオボタンを処理"""
+    """プルダウンとラジオボタンを処理 - CLAUDE.md要件に準拠"""
     try:
         # プルダウン（select）の処理 - 一番上の選択肢を選択
         selects = driver.find_elements(By.TAG_NAME, 'select')
-        for select in selects:
+        for i, select in enumerate(selects):
             try:
                 select_obj = Select(select)
-                if len(select_obj.options) > 1:  # 最初の空白選択肢をスキップ
-                    select_obj.select_by_index(1)
+                options = select_obj.options
+                
+                if len(options) > 1:
+                    # 最初の空白選択肢をスキップして一番上の有効な選択肢を選択
+                    selected = False
+                    for idx in range(1, len(options)):
+                        option_text = options[idx].text.strip()
+                        if option_text and option_text not in ['選択してください', 'Please select', '--']:
+                            select_obj.select_by_index(idx)
+                            logging.info(f"プルダウン選択: {option_text}")
+                            selected = True
+                            break
+                    
+                    if not selected and len(options) > 1:
+                        # それでも選択されない場合は2番目の選択肢を選択
+                        select_obj.select_by_index(1)
+                        logging.info(f"プルダウン選択（デフォルト）: {options[1].text}")
+                
                 time.sleep(0.5)
             except Exception as e:
-                logging.warning(f"プルダウン処理エラー: {str(e)}")
+                logging.warning(f"プルダウン{i+1}処理エラー: {str(e)}")
         
-        # ラジオボタンの処理 - 最初の選択肢を選択
+        # ラジオボタンの処理 - 各グループの最初の選択肢を選択
         radios = driver.find_elements(By.CSS_SELECTOR, 'input[type="radio"]')
         radio_groups = {}
         for radio in radios:
             name = radio.get_attribute('name')
-            if name and name not in radio_groups:
+            if name and name not in radio_groups and radio.is_displayed():
                 try:
-                    radio.click()
-                    radio_groups[name] = True
-                    time.sleep(0.5)
+                    if radio.is_enabled():
+                        radio.click()
+                        radio_groups[name] = True
+                        logging.info(f"ラジオボタン選択: {name}")
+                        time.sleep(0.5)
                 except Exception as e:
-                    logging.warning(f"ラジオボタン処理エラー: {str(e)}")
+                    logging.warning(f"ラジオボタン処理エラー ({name}): {str(e)}")
         
     except Exception as e:
         logging.error(f"選択要素処理エラー: {str(e)}")
 
 def find_submit_button(driver):
-    """送信ボタンを検出"""
+    """送信ボタンを検出 - CLAUDE.md要件に準拠"""
+    # type="submit"を最優先で検索
     submit_selectors = [
         'input[type="submit"]',
-        'button[type="submit"]',
-        'input[value*="送信"]',
-        'input[value*="Submit"]',
-        'button:contains("送信")',
-        'button:contains("Submit")',
-        'input[value*="確認"]',
-        'button:contains("確認")',
-        'input[value*="次へ"]',
-        'button:contains("次へ")'
+        'button[type="submit"]'
     ]
     
+    # value/textによる検索パターン
+    button_texts = ['送信', 'Submit', '確認', '次へ', 'send', 'contact', 'submit']
+    
+    # まずtype="submit"で検索
     for selector in submit_selectors:
         try:
             elements = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -333,43 +348,93 @@ def find_submit_button(driver):
         except Exception:
             continue
     
-    # テキストで検索
+    # value属性でテキスト検索
+    for text in button_texts:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, f'input[value*="{text}"]')
+            for element in elements:
+                if element.is_displayed() and element.is_enabled():
+                    return element
+        except Exception:
+            continue
+    
+    # ボタンタグのテキストで検索
     try:
         buttons = driver.find_elements(By.TAG_NAME, 'button')
         for button in buttons:
-            button_text = button.text.strip()
-            if any(text in button_text for text in ['送信', 'Submit', '確認', '次へ', '送る']):
-                if button.is_displayed() and button.is_enabled():
-                    return button
+            button_text = button.text.strip().lower()
+            for text in button_texts:
+                if text.lower() in button_text:
+                    if button.is_displayed() and button.is_enabled():
+                        return button
+    except Exception:
+        pass
+    
+    # aタグ（リンクボタン）でも検索
+    try:
+        links = driver.find_elements(By.TAG_NAME, 'a')
+        for link in links:
+            link_text = link.text.strip().lower()
+            for text in button_texts:
+                if text.lower() in link_text:
+                    if link.is_displayed():
+                        return link
     except Exception:
         pass
     
     return None
 
 def handle_confirmation_page(driver):
-    """確認画面の処理"""
+    """確認画面の処理 - CLAUDE.md要件に準拠"""
     try:
-        # 確認画面のボタンを検索
-        confirmation_texts = ['送信', '確定', '送る', 'Submit', 'OK', 'はい']
+        # 確認画面のボタンテキスト（優先度順）
+        confirmation_texts = ['送信', '確定', '送る', 'Submit', 'OK', 'はい', 'send', 'confirm']
         
+        # type="submit"を最優先で検索
+        try:
+            submit_elements = driver.find_elements(By.CSS_SELECTOR, 'input[type="submit"], button[type="submit"]')
+            for element in submit_elements:
+                if element.is_displayed() and element.is_enabled():
+                    element.click()
+                    time.sleep(3)  # 送信後の待機時間を延長
+                    return True
+        except Exception:
+            pass
+        
+        # テキストベースで検索
         for text in confirmation_texts:
             try:
                 # ボタンタグから検索
                 buttons = driver.find_elements(By.TAG_NAME, 'button')
                 for button in buttons:
-                    if text in button.text and button.is_displayed() and button.is_enabled():
+                    button_text = button.text.strip().lower()
+                    if text.lower() in button_text and button.is_displayed() and button.is_enabled():
+                        logging.info(f"確認ボタンクリック: {button.text}")
                         button.click()
-                        time.sleep(2)
+                        time.sleep(3)
                         return True
                 
-                # input[type="submit"]から検索
-                inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="submit"]')
+                # input要素のvalue属性から検索
+                inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="submit"], input[type="button"]')
                 for input_elem in inputs:
-                    if text in input_elem.get_attribute('value'):
+                    value = input_elem.get_attribute('value') or ''
+                    if text.lower() in value.lower() and input_elem.is_displayed() and input_elem.is_enabled():
+                        logging.info(f"確認ボタンクリック: {value}")
                         input_elem.click()
-                        time.sleep(2)
+                        time.sleep(3)
                         return True
-            except Exception:
+                        
+                # aタグ（リンクボタン）からも検索
+                links = driver.find_elements(By.TAG_NAME, 'a')
+                for link in links:
+                    link_text = link.text.strip().lower()
+                    if text.lower() in link_text and link.is_displayed():
+                        logging.info(f"確認リンククリック: {link.text}")
+                        link.click()
+                        time.sleep(3)
+                        return True
+            except Exception as e:
+                logging.debug(f"確認ボタン検索エラー ({text}): {str(e)}")
                 continue
         
         return False
@@ -378,26 +443,50 @@ def handle_confirmation_page(driver):
         return False
 
 def check_success(driver):
-    """送信成功を判定"""
+    """送信成功を判定 - CLAUDE.md要件に準拠（5秒待機後判定）"""
     try:
-        # URL確認
+        # 5秒待機してから判定
+        time.sleep(5)
+        
+        # URL確認（ありがとうページ）
         current_url = driver.current_url.lower()
-        success_url_patterns = ['thanks', 'complete', 'success', 'finish', 'done']
+        success_url_patterns = ['thanks', 'complete', 'success', 'finish', 'done', 'thankyou', 'sent']
         
-        if any(pattern in current_url for pattern in success_url_patterns):
-            return True
+        for pattern in success_url_patterns:
+            if pattern in current_url:
+                logging.info(f"成功URL検出: {current_url} (パターン: {pattern})")
+                return True
         
-        # ページ内容確認
+        # ページ内容確認（成功メッセージ）
         success_messages = [
-            '送信しました', 'ありがとう', '受け付けました', '完了',
-            'thank you', 'success', 'submitted', 'received', '送信完了'
+            '送信しました', 'ありがとう', '受け付けました', '完了', '送信完了',
+            'thank you', 'success', 'submitted', 'received', 'sent successfully',
+            'お問い合わせありがとう', 'メッセージを送信', '正常に送信'
         ]
         
-        page_text = driver.find_element(By.TAG_NAME, 'body').text.lower()
-        if any(msg.lower() in page_text for msg in success_messages):
-            return True
+        try:
+            page_text = driver.find_element(By.TAG_NAME, 'body').text.lower()
+            for msg in success_messages:
+                if msg.lower() in page_text:
+                    logging.info(f"成功メッセージ検出: {msg}")
+                    return True
+        except Exception as e:
+            logging.debug(f"ページテキスト取得エラー: {str(e)}")
         
+        # ページタイトルでも確認
+        try:
+            title = driver.title.lower()
+            title_success_patterns = ['thanks', 'thank you', 'complete', 'success', '完了', 'ありがとう']
+            for pattern in title_success_patterns:
+                if pattern in title:
+                    logging.info(f"成功タイトル検出: {title}")
+                    return True
+        except Exception as e:
+            logging.debug(f"タイトル取得エラー: {str(e)}")
+        
+        logging.info(f"成功判定: 失敗 - URL: {current_url}")
         return False
+        
     except Exception as e:
         logging.error(f"成功判定エラー: {str(e)}")
         return False
@@ -446,22 +535,33 @@ def process_single_url(driver, url_info):
             logging.warning(f"送信ボタン未検出: {url}")
             return result
         
+        logging.info(f"送信ボタンクリック: {submit_button.text if hasattr(submit_button, 'text') else 'N/A'}")
         submit_button.click()
         time.sleep(3)  # 送信後の待機
         
-        # 確認画面の処理
-        if '確認' in driver.page_source or 'confirm' in driver.current_url.lower():
-            if handle_confirmation_page(driver):
-                time.sleep(3)
+        # 確認画面の処理（より包括的に検出）
+        page_source = driver.page_source.lower()
+        current_url = driver.current_url.lower()
         
-        # 成功判定
+        # 確認画面検出パターン
+        confirmation_patterns = ['確認', 'confirm', 'preview', 'check', '内容確認', 'verification']
+        is_confirmation_page = any(pattern in page_source or pattern in current_url for pattern in confirmation_patterns)
+        
+        if is_confirmation_page:
+            logging.info("確認画面を検出 - 確認ボタンを探します")
+            if handle_confirmation_page(driver):
+                logging.info("確認画面で送信ボタンをクリックしました")
+            else:
+                logging.warning("確認画面で送信ボタンが見つかりませんでした")
+        
+        # 成功判定（5秒待機を含む）
         if check_success(driver):
             result['status'] = 'success'
             result['error'] = '送信成功'
-            logging.info(f"送信成功: {company} - {url}")
+            logging.info(f"✅ 送信成功: {company} - {url}")
         else:
-            result['error'] = '送信結果が不明'
-            logging.warning(f"送信結果不明: {url}")
+            result['error'] = '送信結果の確認ができませんでした'
+            logging.warning(f"❌ 送信結果不明: {company} - {url}")
     
     except TimeoutException:
         result['error'] = 'ページの読み込みがタイムアウトしました'
@@ -532,7 +632,7 @@ def process_urls(input_filepath, status_dict, callback_func):
             logging.error(f"ブラウザ動作テスト失敗: {str(e)}")
             raise
         
-        # 各URLを1行ずつ処理
+        # 各URLを1行ずつ新しいタブで処理
         for i, url_info in enumerate(urls):
             if not status_dict['is_running']:
                 logging.info("処理停止要求を受信")
@@ -553,33 +653,44 @@ def process_urls(input_filepath, status_dict, callback_func):
             
             # 新しいタブでURL処理
             try:
-                # 新しいタブを開く
+                # 新しいタブを開いてそのタブに切り替え
+                original_handles = driver.window_handles
                 driver.execute_script("window.open('');")
-                driver.switch_to.window(driver.window_handles[-1])
+                # 新しいタブが開かれるまで少し待機
+                time.sleep(1)
+                new_handles = driver.window_handles
+                new_tab = list(set(new_handles) - set(original_handles))[0]
+                driver.switch_to.window(new_tab)
+                
+                logging.info(f"新しいタブで処理開始: {url_info['url']}")
                 
                 # URL処理
                 result = process_single_url(driver, url_info)
                 result['index'] = url_info['index']
                 results.append(result)
                 
-                # 結果集計
+                # 結果集計と対応
                 if result['status'] == 'success':
                     status_dict['success'] += 1
-                    logging.info(f"✅ 成功: {url_info['company']}")
+                    logging.info(f"✅ 成功: {url_info['company']} - タブを閉じます")
+                    
                     # 成功した場合はタブを閉じる
                     driver.close()
+                    # メインタブ（最初のタブ）に戻る
                     if driver.window_handles:
                         driver.switch_to.window(driver.window_handles[0])
                 else:
                     status_dict['failed'] += 1
-                    logging.warning(f"❌ 失敗: {url_info['company']} - {result['error']}")
-                    # 失敗した場合はタブを開いたまま次へ
-                    if driver.window_handles:
+                    logging.warning(f"❌ 失敗: {url_info['company']} - {result['error']} - タブを開いたまま残します")
+                    
+                    # 失敗した場合はタブを開いたまま残す
+                    # メインタブ（最初のタブ）に戻る
+                    if len(driver.window_handles) > 1:
                         driver.switch_to.window(driver.window_handles[0])
                 
                 status_dict['processed'] = i + 1
                 
-                # 2秒間隔で次のURL処理
+                # 次のURL処理まで2秒間隔で待機
                 if i < len(urls) - 1:
                     logging.info("2秒待機中...")
                     time.sleep(2)
@@ -598,13 +709,16 @@ def process_urls(input_filepath, status_dict, callback_func):
                 status_dict['failed'] += 1
                 status_dict['processed'] = i + 1
                 
-                # エラー時もタブを閉じる
+                # エラー時は現在のタブを閉じてメインタブに戻る
                 try:
                     if len(driver.window_handles) > 1:
                         driver.close()
                         driver.switch_to.window(driver.window_handles[0])
-                except:
-                    pass
+                except Exception as close_error:
+                    logging.warning(f"タブクローズエラー: {str(close_error)}")
+                    # メインタブに強制的に戻る
+                    if driver.window_handles:
+                        driver.switch_to.window(driver.window_handles[0])
         
         # 結果保存
         name, ext = os.path.splitext(input_filepath)
