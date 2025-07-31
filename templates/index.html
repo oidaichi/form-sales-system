@@ -108,7 +108,7 @@
         <div class="card">
             <h2>⚡ 処理実行</h2>
             <div class="btn-group mb-3" role="group">
-                <button class="btn btn-success" onclick="startProcessing()">🤖 ヘッドレス処理開始</button>
+                <button class="btn btn-success" onclick="startProcessing()">🖥️ ブラウザ処理開始</button>
                 <button class="btn btn-info" disabled>🖥️ タブベース処理開始 (未実装)</button>
                 <button class="btn btn-danger" disabled>⏹️ 停止 (未実装)</button>
             </div>
@@ -229,7 +229,7 @@
                 return response.json();
             })
             .then(data => {
-                alert(data.message);
+                // alert(data.message); // ポップアップを非表示にする
                 totalCompanies = data.total_companies;
                 allCsvData = data.processed_csv_data;
 

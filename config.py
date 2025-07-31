@@ -10,7 +10,7 @@ class Config:
     REQUEST_TIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', 30))
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///form_sales_simple.db')
     DATABASE_TIMEOUT = 30
-    BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'false').lower() == 'true'
+    BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'true').lower() == 'true'
     BROWSER_TIMEOUT = int(os.environ.get('BROWSER_TIMEOUT', 30))
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
     LOG_RETENTION_DAYS = int(os.environ.get('LOG_RETENTION_DAYS', 30))

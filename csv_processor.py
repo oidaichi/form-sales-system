@@ -79,6 +79,7 @@ def read_and_prepare_csv(filepath):
 def clean_dataframe(df):
     """
     データフレームの値をきれいに整形（クレンジング）する。
+    全てのカラムに適用し、欠損値の補正、空白・不正文字の除去を行う。
 
     Args:
         df (pandas.DataFrame): 入力データフレーム。
@@ -87,11 +88,41 @@ def clean_dataframe(df):
         pandas.DataFrame: クレンジング済みのデータフレーム。
     """
     logger.info("データのクレンジングを開始します。")
+    
+    # 全てのカラムを文字列型に変換し、前後の空白を削除
+    # pd.NA, None, numpy.nan などもここで文字列 'nan', 'None' に変換される
+    df = df.astype(str).apply(lambda x: x.str.strip())
+
+    # 'nan', 'None', 'NA', 'N/A' といった文字列形式の欠損値を空文字列に置換
+    # regex=False でリテラルマッチング
+    df = df.replace(['nan', 'None', 'NA', 'N/A'], '', regex=False)
+
+    # タブ、改行コード、全角スペースなどの不正文字を除去
+    # 全角スペースは \u3000
     for col in df.columns:
-        # 全ての値を文字列に変換し、前後の空白を削除
-        df[col] = df[col].astype(str).str.strip()
-        # 'nan' や 'None' といった文字列を空文字に置換
-        df[col] = df[col].replace(['nan', 'None', 'NA', 'N/A'], '', regex=False)
+        df[col] = df[col].apply(lambda x: re.sub(r'[\t\n\r\u3000]', '', x))
+        # URL形式の補正: 不正なURLは空文字列に変換
+    def _normalize_url(url_str):
+        if not url_str:
+            return ''
+        try:
+            parsed = urlparse(url_str)
+            # スキームがない場合は 'http://' を追加して再パースを試みる
+            if not parsed.scheme:
+                parsed = urlparse('http://' + url_str)
+            # 有効なスキームとネットロケーションがあるか確認
+            if parsed.scheme in ['http', 'https'] and parsed.netloc:
+                return parsed.geturl()
+            else:
+                return '' # 不正な形式は空文字列に
+        except Exception:
+            return '' # パースエラーも空文字列に
+
+    if 'url' in df.columns:
+        df['url'] = df['url'].apply(_normalize_url)
+    if 'contact_url' in df.columns:
+        df['contact_url'] = df['contact_url'].apply(_normalize_url)
+
     logger.info("データのクレンジングが完了しました。")
     return df
 

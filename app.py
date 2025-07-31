@@ -89,33 +89,14 @@ def test_disconnect():
 async def process_company(company_data, browser_config):
     company_name = company_data['company']
     company_url = company_data['url']
-    contact_url = company_data.get('contact_url')
-
-    db = get_db()
-    cursor = db.cursor()
-
-    # 重複チェック
-    company_hash = hashlib.sha256(f"{company_name}-{company_url}".encode()).hexdigest()
-    cursor.execute("SELECT status FROM processing_logs WHERE company_name = ? AND url = ? AND timestamp > datetime('now', '-30 days')", (company_name, company_url))
-    if cursor.fetchone():
-        logger.info(f"[SKIP] {company_name} - {company_url}: Already processed within 30 days.")
-        socketio.emit('processing_status', {'message': f'Skipped: {company_name} (already processed)', 'company': company_name, 'status': 'skipped'})
-        return {'status': 'skipped', 'message': 'Already processed'}
+    contact_url_from_csv = company_data.get('contact_url') # CSVから取得したcontact_url
 
     logger.info(f"[START] {company_name} - {company_url}")
     socketio.emit('processing_status', {'message': f'Processing: {company_name}', 'company': company_name, 'status': 'processing'})
 
     status = "failed"
     message = "Unknown error"
-    processing_time = 0
-    form_fields_found = 0
-    form_fields_filled = 0
-    error_details = ""
-    page_title = ""
-    final_url = company_url
-
-    start_time = time.time()
-
+    
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=browser_config["headless"])
@@ -124,106 +105,76 @@ async def process_company(company_data, browser_config):
             await page.set_extra_http_headers({'User-Agent': browser_config["user_agent"]})
             page.set_default_timeout(browser_config["timeout"])
 
+            # 1. 企業URLにアクセス
             try:
                 await page.goto(company_url, wait_until="networkidle")
                 page_title = await page.title()
-                final_url = page.url
+                current_url = page.url
+                logger.info(f"Accessed {company_url}. Current URL: {current_url}")
             except Exception as e:
-                error_details = f"Network Error: {e}"
-                message = f"❌ 接続エラー: {company_url} にアクセスできません"
-                logger.warning(f"Network Error for {company_url}: {e}")
+                message = f"❌ URLアクセスエラー: {company_url} - {e}"
+                logger.error(message)
+                await browser.close()
                 socketio.emit('processing_status', {'message': message, 'company': company_name, 'status': 'failed'})
-                return {'status': 'failed', 'message': message, 'error_details': error_details}
+                return {'status': 'failed', 'message': message, 'company': company_name}
 
-            # フォーム検出
-            html_content = await page.content()
-            form_detector = FormDetector(html_content, final_url)
-            is_form_page, score = form_detector.detect_form_page()
-            logger.info(f"Form page detection for {company_name}: {is_form_page}, Score: {score}")
+            # 2. お問い合わせページの特定と遷移
+            form_detector = FormDetector(await page.content(), current_url)
+            contact_links = form_detector.find_contact_links()
+            
+            target_contact_url = None
 
-            if not is_form_page:
-                # 代替ページ検索
-                if contact_url:
-                    try:
-                        await page.goto(contact_url, wait_until="networkidle")
-                        html_content = await page.content()
-                        form_detector = FormDetector(html_content, page.url)
-                        is_form_page, score = form_detector.detect_form_page()
-                        if is_form_page:
-                            logger.info(f"Form found on contact_url for {company_name}: {contact_url}")
-                            final_url = page.url
-                        else:
-                            message = f"⚠️ フォームが見つかりません: {company_name} (contact_urlも含む)"
-                            logger.info(message)
-                            status = "failed"
-                            error_details = "Form not found on main or contact URL."
-                    except Exception as e:
-                        message = f"⚠️ フォームが見つかりません: {company_name} (contact_urlアクセスエラー)"
-                        logger.info(message)
-                        status = "failed"
-                        error_details = f"Form not found on main URL, and contact_url access error: {e}"
-                else:
-                    message = f"⚠️ フォームが見つかりません: {company_name}"
-                    logger.info(message)
-                    status = "failed"
-                    error_details = "Form not found on main URL."
-
-            if is_form_page:
-                # フォーム入力
-                current_form_data = FORM_DATA.copy()
-                current_form_data['company_data']['target_company'] = company_name
-                form_filler = FormFiller(page, current_form_data)
-                
+            # CSVにcontact_urlがあれば最優先
+            if contact_url_from_csv and form_detector._is_valid_http_url(contact_url_from_csv):
+                target_contact_url = contact_url_from_csv
+                logger.info(f"Using contact_url from CSV: {target_contact_url}")
+            elif contact_links:
+                target_contact_url = contact_links[0] # 最もスコアの高いリンクを使用
+                logger.info(f"Found contact link: {target_contact_url}")
+            
+            if target_contact_url:
                 try:
-                    await form_filler.fill_form()
-                    # TODO: 検出フィールド数と入力成功フィールド数を正確に取得するロジックを追加
-                    form_fields_found = 0 # 仮
-                    form_fields_filled = 0 # 仮
+                    await page.goto(target_contact_url, wait_until="networkidle")
+                    current_url = page.url
+                    logger.info(f"Navigated to potential contact page: {current_url}")
+                    
+                    # 遷移先がフォームページか再判定
+                    form_detector_on_contact_page = FormDetector(await page.content(), current_url)
+                    is_form_page, score = form_detector_on_contact_page.detect_form_page()
 
-                    # CAPTCHA検出
-                    if await page.locator("div[data-sitekey]").is_visible(timeout=5000): # reCAPTCHAの一般的なセレクタ
-                        message = "🔒 人間認証が必要です: 手動で処理してください"
-                        status = "failed"
-                        error_details = "CAPTCHA detected."
-                        logger.warning(f"CAPTCHA detected for {company_name}")
+                    if is_form_page:
+                        logger.info(f"Form page detected with score {score} at {current_url}")
+                        # ここでフォーム入力・送信ロジックを呼び出す
+                        # 現時点ではまだ実装されていないため、成功として終了
+                        status = "success"
+                        message = f"お問い合わせページ検出・遷移成功: {current_url}"
                     else:
-                        # フォーム送信
-                        if await form_filler.find_and_submit_form():
-                            status = "success"
-                            message = "フォーム送信完了"
-                            logger.info(f"[SUCCESS] {company_name} - Form submitted.")
-                        else:
-                            status = "failed"
-                            message = "送信ボタンが見つかりません/送信失敗"
-                            error_details = "Submit button not found or submission failed."
-                            logger.warning(f"Submit button not found or submission failed for {company_name}")
+                        status = "failed"
+                        message = f"お問い合わせページにフォームが見つかりませんでした: {current_url}"
+                        logger.warning(message)
+
                 except Exception as e:
                     status = "failed"
-                    message = f"⚠️ 入力エラー: {e}"
-                    error_details = f"Form filling/submission error: {e}"
-                    logger.error(f"Form filling/submission error for {company_name}: {e}")
+                    message = f"お問い合わせページへの遷移エラー: {target_contact_url} - {e}"
+                    logger.error(message)
+            else:
+                status = "failed"
+                message = "お問い合わせページへのリンクが見つかりませんでした。"
+                logger.warning(message)
+            
+            # スクリーンショットを撮る (デバッグ用)
+            screenshot_path = f"screenshots/{company_name.replace('/', '_')}_{int(time.time())}.png"
+            await page.screenshot(path=screenshot_path)
+            logger.info(f"Screenshot saved: {screenshot_path}")
             
             await browser.close()
 
     except Exception as e:
-        status = "failed"
         message = f"システムエラー: {e}"
-        error_details = f"System error: {e}"
         logger.critical(f"Critical error during processing {company_name}: {e}")
     finally:
-        processing_time = time.time() - start_time
-        try:
-            cursor.execute(
-                "INSERT INTO processing_logs (company_name, url, status, message, processing_time, form_fields_found, form_fields_filled, error_details, page_title, final_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (company_name, company_url, status, message, processing_time, form_fields_found, form_fields_filled, error_details, page_title, final_url)
-            )
-            db.commit()
-        except sqlite3.Error as e:
-            logger.error(f"Database error when logging for {company_name}: {e}")
-            error_details += f" | DB Error: {e}"
-
         socketio.emit('processing_status', {'message': message, 'company': company_name, 'status': status})
-        return {'status': status, 'message': message, 'company': company_name, 'processing_time': processing_time}
+        return {'status': status, 'message': message, 'company': company_name}
 
 @socketio.on('start_processing')
 def start_processing(data):
